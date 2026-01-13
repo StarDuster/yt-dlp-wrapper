@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-dlp-wrapper"
+version = "0.1.0"
+description = "Standalone YouTube downloader wrapper (channel list + video id list)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "yt-dlp>=2024.0.0",
+  "curl_cffi",
+  "yt-dlp-invidious",
+  "bgutil-ytdlp-pot-provider",
+  "rich>=13.0.0",
+  "playwright",
+]
+
+[project.scripts]
+yt-dlp-wrapper = "main:cli"
+
+[tool.setuptools]
+py-modules = ["main", "config"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["auth*", "core*"]
