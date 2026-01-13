@@ -118,7 +118,7 @@ yt-dlp-wrapper account clear-auth --account backup_acc_1
 
 ## 5. 进阶：关于 Invidious 和 PO Token
 
-这部分是给需要对下载过程进行精细控制的用户准备的。
+yt-dlp 支持的对抗限流插件
 
 ### 什么是 Invidious？
 Invidious 是一个开源的 YouTube 前端替代品。
