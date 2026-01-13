@@ -18,11 +18,9 @@ dependencies = [
 ]
 
 [project.scripts]
-yt-dlp-wrapper = "main:cli"
+yt-dlp-wrapper = "yt_dlp_wrapper.cli:cli"
 
 [tool.setuptools]
-py-modules = ["main", "config"]
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["auth*", "core*"]
+include = ["yt_dlp_wrapper*"]

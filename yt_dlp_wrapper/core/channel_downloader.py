@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
-import config
-from auth.pool import YouTubeAccount, YouTubeAccountPool
-from core.models import (
+from .. import config
+from ..auth.pool import YouTubeAccount, YouTubeAccountPool
+from .models import (
     DownloadResult,
     RATE_LIMIT_PATTERNS,
     MEMBERS_ONLY_PATTERNS,

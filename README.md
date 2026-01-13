@@ -46,12 +46,14 @@ python -m playwright install chromium
 
 ## 2. 配置 (Config)
 
-项目根目录下的 `config.py` 包含了默认配置。你可以直接修改它，或者通过环境变量覆盖。
+项目内的 `yt_dlp_wrapper/config.py` 包含了默认配置。你可以直接修改它，或者通过环境变量覆盖。
 
 主要关注这几个：
 *   `YOUTUBE_DOWNLOAD_DIR`: 视频下载保存到哪。
 *   `YOUTUBE_ACCOUNTS_DIR`: 账号数据存哪（默认在 `~/.config/...`）。
 *   `INVIDIOUS_INSTANCE`: 如果你想用 Invidious 实例来辅助解析，可以在这里填。
+*   `YOUTUBE_SLEEP_REQUESTS`: 每个请求之间 sleep 多少秒（等价 `yt-dlp --sleep-requests`，也可用 CLI `--sleep` 覆盖）。
+*   `YOUTUBE_SLEEP_INTERVAL` / `YOUTUBE_MAX_SLEEP_INTERVAL`: 每个下载前 sleep（随机范围，等价 `yt-dlp --sleep-interval/--max-sleep-interval`）。
 *   `YOUTUBE_PO_TOKEN` / `YOUTUBE_POT_PROVIDER`: 需要过 PO Token 验证时配置。
 
 ## 3. 账号准备
@@ -96,7 +98,8 @@ yt-dlp-wrapper account clear-auth --account backup_acc_1
     ```bash
     yt-dlp-wrapper download \
       --channel-list channels.txt \
-      --output-dir /data/youtube
+      --output-dir /data/youtube \
+      --sleep 1.0
     ```
 
 **它会做什么？**
@@ -113,7 +116,8 @@ yt-dlp-wrapper account clear-auth --account backup_acc_1
     ```bash
     yt-dlp-wrapper download \
       --video-list videos.txt \
-      --workers 4
+      --workers 4 \
+      --sleep 1.0
     ```
 
 ## 5. 进阶：关于 Invidious 和 PO Token
@@ -127,7 +131,7 @@ Invidious 是一个开源的、注重隐私的 YouTube 前端替代品。
 
 #### 配置方案
 **方案 A：使用公共实例 (最简单)**
-在 `config.py` 中填入有效的公共实例地址（如 `https://inv.tux.pizza`，列表见 [Invidious Instances](https://docs.invidious.io/instances/)）。
+在 `yt_dlp_wrapper/config.py` 中填入有效的公共实例地址（如 `https://inv.tux.pizza`，列表见 [Invidious Instances](https://docs.invidious.io/instances/)）。
 *   *缺点*：公共实例常因负载过高而不稳定。
 
 **方案 B：本地部署 (推荐)**
@@ -140,7 +144,7 @@ Invidious 是一个开源的、注重隐私的 YouTube 前端替代品。
     docker compose up -d
     ```
 2.  **配置工具**：
-    修改 `config.py`：`INVIDIOUS_INSTANCE = "127.0.0.1:3000"`
+    修改 `yt_dlp_wrapper/config.py`：`INVIDIOUS_INSTANCE = "127.0.0.1:3000"`
 
 ### 什么是 PO Token (Proof of Origin)？
 PO Token（来源证明）是 YouTube 引入的一种反爬虫验证机制，由其 BotGuard (Web) 或 DroidGuard (Android) 组件生成。
@@ -148,7 +152,7 @@ PO Token（来源证明）是 YouTube 引入的一种反爬虫验证机制，由
 *   **作用**：这个 Token 向 YouTube 证明当前的请求来自于一个真实的浏览器或合法的客户端环境，而非简单的脚本。提供有效的 Token 可以解除限速和 403 禁止访问。
 *   **相关文档**：详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"](https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors)。
 *   **如何使用**：
-    1.  **手动填入**：从浏览器中提取 Token，填入 `config.py` 的 `YOUTUBE_PO_TOKEN`。
+    1.  **手动填入**：从浏览器中提取 Token，填入 `yt_dlp_wrapper/config.py` 的 `YOUTUBE_PO_TOKEN`。
     2.  **自动获取**：配置 `YOUTUBE_POT_PROVIDER` 使用第三方脚本动态生成。
     *原理上，这对应 `yt-dlp` 的参数：`--extractor-args "youtube:player_client=web;po_token=..."`。*
 

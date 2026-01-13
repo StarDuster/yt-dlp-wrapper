@@ -6,9 +6,9 @@ from pathlib import Path
 
 from rich.logging import RichHandler
 
-import config
-from auth.pool import get_account_paths, load_accounts_from_config
-from core.channel_downloader import YouTubeDownloader
+from . import config
+from .auth.pool import get_account_paths, load_accounts_from_config
+from .core.channel_downloader import YouTubeDownloader
 
 
 def _setup_logging(debug: bool) -> None:
@@ -19,6 +19,21 @@ def _setup_logging(debug: bool) -> None:
         datefmt="[%X]",
         handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
     )
+
+
+def _non_negative_float(value: str) -> float:
+    try:
+        n = float(value)
+    except Exception as e:
+        raise argparse.ArgumentTypeError(f"Invalid number: {value}") from e
+    if n < 0:
+        raise argparse.ArgumentTypeError("Must be >= 0")
+    return n
+
+
+def _apply_download_overrides(args: argparse.Namespace) -> None:
+    if getattr(args, "sleep", None) is not None:
+        config.YOUTUBE_SLEEP_REQUESTS = float(args.sleep)
 
 
 def _read_list(path: Path) -> list[str]:
@@ -77,7 +92,7 @@ def _handle_channel_list(args: argparse.Namespace) -> int:
 
 
 def _handle_video_list(args: argparse.Namespace) -> int:
-    from core.list_downloader import download_from_input_list
+    from .core.list_downloader import download_from_input_list
 
     input_path = Path(args.video_list).expanduser().resolve()
     output_dir = (
@@ -100,7 +115,7 @@ def _handle_video_list(args: argparse.Namespace) -> int:
 
 
 def _account_login(args: argparse.Namespace) -> int:
-    from auth.browser import YouTubeBrowserAuth
+    from .auth.browser import YouTubeBrowserAuth
 
     if args.account:
         profile_dir, cookies_file = get_account_paths(
@@ -120,7 +135,7 @@ def _account_login(args: argparse.Namespace) -> int:
 
 
 def _account_refresh(args: argparse.Namespace) -> int:
-    from auth.browser import YouTubeBrowserAuth
+    from .auth.browser import YouTubeBrowserAuth
 
     if args.account:
         profile_dir, cookies_file = get_account_paths(
@@ -140,7 +155,7 @@ def _account_refresh(args: argparse.Namespace) -> int:
 
 
 def _account_clear(args: argparse.Namespace) -> int:
-    from auth.browser import YouTubeBrowserAuth
+    from .auth.browser import YouTubeBrowserAuth
 
     if args.account:
         profile_dir, cookies_file = get_account_paths(
@@ -177,6 +192,11 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--workers", type=int, help="Worker count (video list mode)")
     download.add_argument("--limit", type=int, help="Limit items (video list mode)")
     download.add_argument("--lang", default="ja", help="Subtitle language (channel mode)")
+    download.add_argument(
+        "--sleep",
+        type=_non_negative_float,
+        help="Seconds to sleep between requests (overrides config.YOUTUBE_SLEEP_REQUESTS)",
+    )
     download.add_argument("--no-invidious", action="store_true", help="Disable Invidious")
     download.add_argument("--debug", action="store_true", help="Debug output")
     download.add_argument("--accounts-dir", help="Override accounts directory")
@@ -206,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "download":
         _setup_logging(bool(args.debug))
+        _apply_download_overrides(args)
         if args.channel_list:
             return _handle_channel_list(args)
         if args.video_list:

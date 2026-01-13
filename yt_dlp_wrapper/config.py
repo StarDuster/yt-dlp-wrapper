@@ -20,7 +20,8 @@ INVIDIOUS_INSTANCE = "127.0.0.1:3000"  # Local instance via Docker
 YOUTUBE_PLAYER_CLIENT = None
 
 # yt-dlp rate limiting settings (optional)
-YOUTUBE_SLEEP_REQUESTS = 2
+# --sleep-requests: seconds to sleep between requests during data extraction
+YOUTUBE_SLEEP_REQUESTS = 2.0
 YOUTUBE_SLEEP_INTERVAL = 5
 YOUTUBE_MAX_SLEEP_INTERVAL = 8
 

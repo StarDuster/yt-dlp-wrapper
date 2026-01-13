@@ -10,9 +10,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from playwright.sync_api import sync_playwright, BrowserContext
+from playwright.sync_api import BrowserContext, sync_playwright
 
-import config
+from .. import config
 
 logger = logging.getLogger(__name__)
 

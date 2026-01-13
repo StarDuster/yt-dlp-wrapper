@@ -25,12 +25,11 @@ from rich.console import Console
 from rich.filesize import decimal as fmt_bytes
 from rich.progress import BarColumn, Progress, ProgressColumn, SpinnerColumn, TextColumn
 from rich.text import Text
-
-import config
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
-from auth.pool import YouTubeAccount, YouTubeAccountPool, load_accounts_from_config
+from .. import config
+from ..auth.pool import YouTubeAccount, YouTubeAccountPool, load_accounts_from_config
 
 
 console = Console()
@@ -350,6 +349,12 @@ def download_from_input_list(
     no_invidious: bool = False,
     accounts_dir: Optional[Path] = None,
 ) -> int:
+    # #region agent log
+    import json as _json; _log_path = Path("/data2/youtube/.cursor/debug.log"); _t0 = time.time()
+    def _dbg(msg, data=None, hyp="?"): _log_path.parent.mkdir(parents=True, exist_ok=True); _log_path.open("a").write(_json.dumps({"ts": time.time(), "elapsed": round(time.time()-_t0, 3), "hyp": hyp, "msg": msg, "data": data or {}}) + "\n")
+    _dbg("download_from_input_list START", {"input": str(input_list_path), "output": str(output_dir)}, "A")
+    # #endregion
+
     input_list_path = input_list_path.expanduser().resolve()
     if not input_list_path.exists():
         raise FileNotFoundError(f"Input list not found: {input_list_path}")
@@ -361,6 +366,9 @@ def download_from_input_list(
     # Without this, concurrent YoutubeDL() creation in multiple workers may trigger
     # plugin loading simultaneously and cause spurious ImportError like
     # "cannot import name ... from yt_dlp_plugins...".
+    # #region agent log
+    _dbg("load_all_plugins START", hyp="B")
+    # #endregion
     try:
         from yt_dlp.plugins import load_all_plugins
 
@@ -368,9 +376,18 @@ def download_from_input_list(
     except Exception:
         # Plugins are optional; never block downloads due to plugin import failures.
         pass
+    # #region agent log
+    _dbg("load_all_plugins END", hyp="B")
+    # #endregion
 
     # Accounts (multi-account dir first; fallback to legacy config cookie)
+    # #region agent log
+    _dbg("load_accounts_from_config START", hyp="C")
+    # #endregion
     accounts, pool = load_accounts_from_config(accounts_dir=accounts_dir)
+    # #region agent log
+    _dbg("load_accounts_from_config END", {"num_accounts": len(accounts) if accounts else 0}, "C")
+    # #endregion
     if accounts:
         console.print(
             f"Account pool enabled: {len(accounts)} account(s) "
@@ -395,11 +412,24 @@ def download_from_input_list(
     failed_lock = threading.Lock()
     processed_lock = threading.Lock()
 
+    # #region agent log
+    _dbg("load_archive_ids START", {"file": str(archive_file)}, "D")
+    # #endregion
     archived_ids = load_archive_ids(archive_file)
+    # #region agent log
+    _dbg("load_archive_ids END", {"count": len(archived_ids)}, "D")
+    _dbg("load_failed_ids START", {"file": str(unavailable_file)}, "D")
+    # #endregion
     unavailable_ids = load_failed_ids(unavailable_file)
+    # #region agent log
+    _dbg("load_failed_ids END", {"count": len(unavailable_ids)}, "D")
+    # #endregion
     processed_ids: set[str] = set(archived_ids) | set(unavailable_ids)
 
     # Count tasks
+    # #region agent log
+    _dbg("count_tasks START", {"input_file": str(input_list_path), "limit": limit}, "E")
+    # #endregion
     total = 0
     already_done = 0
     with input_list_path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -413,6 +443,11 @@ def download_from_input_list(
                 already_done += 1
             if limit and total >= limit:
                 break
+
+    # #region agent log
+    _dbg("count_tasks END", {"total": total, "already_done": already_done}, "E")
+    _dbg("INIT COMPLETE", {"total_init_time": round(time.time()-_t0, 3)}, "A")
+    # #endregion
 
     if total <= 0:
         console.print("Input list is empty or contains no valid lines")
@@ -535,6 +570,10 @@ def download_from_input_list(
             extractor_args["youtube"] = youtube_args
         _merge_extractor_args(extractor_args, getattr(config, "YOUTUBE_EXTRACTOR_ARGS", None))
 
+        sleep_interval_requests = float(getattr(config, "YOUTUBE_SLEEP_REQUESTS", 0.0) or 0.0)
+        sleep_interval = float(getattr(config, "YOUTUBE_SLEEP_INTERVAL", 0.0) or 0.0)
+        max_sleep_interval = float(getattr(config, "YOUTUBE_MAX_SLEEP_INTERVAL", 0.0) or 0.0)
+
         ydl_opts: dict = {
             "format": getattr(
                 config,
@@ -588,6 +627,15 @@ def download_from_input_list(
             # Allow fetching remote EJS component when needed
             "remote_components": ["ejs:github"],
         }
+
+        if sleep_interval_requests and sleep_interval_requests > 0:
+            # yt-dlp option: --sleep-requests (seconds between requests during extraction)
+            ydl_opts["sleep_interval_requests"] = sleep_interval_requests
+        if sleep_interval and sleep_interval > 0:
+            # yt-dlp option: --sleep-interval/--min-sleep-interval (seconds before each download)
+            ydl_opts["sleep_interval"] = sleep_interval
+            if max_sleep_interval and max_sleep_interval > 0:
+                ydl_opts["max_sleep_interval"] = max_sleep_interval
 
         if account is not None and account.cookies_file.exists():
             ydl_opts["cookiefile"] = str(account.cookies_file)

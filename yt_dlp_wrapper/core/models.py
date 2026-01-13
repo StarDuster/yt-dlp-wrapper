@@ -1,6 +1,4 @@
-"""
-Data models and constants for YouTube downloader.
-"""
+"""Data models and constants for YouTube downloader."""
 
 from dataclasses import dataclass, field
 from typing import Optional

@@ -24,7 +24,7 @@ def _resolve_accounts_dir(accounts_dir: Optional[Path]) -> Path:
     if accounts_dir is not None:
         return Path(accounts_dir).expanduser().resolve()
     try:
-        import config  # local import to avoid forcing config at module import time
+        from .. import config  # local import to avoid forcing config at module import time
 
         cfg_dir = getattr(config, "YOUTUBE_ACCOUNTS_DIR", None)
         if cfg_dir:
@@ -175,7 +175,7 @@ def load_accounts_from_config(
         (accounts, pool)
         pool is None when <=1 account is available.
     """
-    import config  # local import to avoid forcing config at module import time
+    from .. import config  # local import to avoid forcing config at module import time
 
     accounts = discover_accounts(accounts_dir=accounts_dir)
 
