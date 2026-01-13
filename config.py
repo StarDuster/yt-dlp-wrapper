@@ -13,7 +13,7 @@ YOUTUBE_DOWNLOAD_DIR = Path.home() / "yt-dlp-wrapper" / "downloads"
 YOUTUBE_CHANNEL_LIST_CACHE_TTL_DAYS = 7.0
 
 # yt-dlp Invidious configuration (single instance)
-INVIDIOUS_INSTANCE = None  # e.g., "127.0.0.1:3000"
+INVIDIOUS_INSTANCE = "127.0.0.1:3000"  # Local instance via Docker
 
 # yt-dlp player client setting (optional)
 # Options: "web", "android", "ios", "mweb", "tv_embedded"

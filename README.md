@@ -122,8 +122,25 @@ yt-dlp 支持的反限流插件：
 
 ### 什么是 Invidious？
 Invidious 是一个开源的、注重隐私的 YouTube 前端替代品。
-*   **作用**：除了作为观看界面，它常被用作 `yt-dlp` 的备用 API 来源（Instance API）。当 YouTube 官方接口对当前 IP 限流或屏蔽时，配置 Invidious 实例可以帮助获取视频元数据，规避部分访问限制。
-*   **如何使用**：在 `config.py` 中配置 `INVIDIOUS_INSTANCE`（填入一个有效的 Invidious 实例 URL，如 `https://yewtu.be`）。
+*   **作用**：除了作为观看界面，它常被用作 `yt-dlp` 的备用 API 来源（Instance API）。当 YouTube 官方接口对当前 IP 限流或屏蔽时，配置 Invidious 实例可以帮助获取视频元数据。
+*   **注意**：`pip` 安装的只是客户端插件，你还需要配置一个**服务端**（Instance）。
+
+#### 配置方案
+**方案 A：使用公共实例 (最简单)**
+在 `config.py` 中填入有效的公共实例地址（如 `https://inv.tux.pizza`，列表见 [Invidious Instances](https://docs.invidious.io/instances/)）。
+*   *缺点*：公共实例常因负载过高而不稳定。
+
+**方案 B：本地部署 (推荐)**
+使用 Docker 在本地启动服务，最稳定且无网络延迟。
+1.  **启动服务**：
+    ```bash
+    git clone https://github.com/iv-org/invidious.git
+    cd invidious
+    # 生成配置并启动
+    docker compose up -d
+    ```
+2.  **配置工具**：
+    修改 `config.py`：`INVIDIOUS_INSTANCE = "127.0.0.1:3000"`
 
 ### 什么是 PO Token (Proof of Origin)？
 PO Token（来源证明）是 YouTube 引入的一种反爬虫验证机制，由其 BotGuard (Web) 或 DroidGuard (Android) 组件生成。
