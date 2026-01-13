@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+*.dist-info/
+
+# Packaging
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Test/linters
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Runtime outputs
+downloads/
+download.archive.txt
+video_ids.txt
+failed.txt
+unavailable.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
