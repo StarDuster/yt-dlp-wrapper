@@ -118,18 +118,22 @@ yt-dlp-wrapper account clear-auth --account backup_acc_1
 
 ## 5. 进阶：关于 Invidious 和 PO Token
 
-yt-dlp 支持的对抗限流插件
+yt-dlp 支持的反限流插件：
 
 ### 什么是 Invidious？
-Invidious 是一个开源的 YouTube 前端替代品。
-*   **作用**：在官方 API 受限或极慢时，`yt-dlp` 可以尝试通过 Invidious 实例来获取视频信息。这在某些网络受限环境或需要降低对官方接口请求频率时非常有用。
-*   **如何使用**：在 `config.py` 中配置 `INVIDIOUS_INSTANCE`（填入一个有效的 Invidious 实例 URL）。
+Invidious 是一个开源的、注重隐私的 YouTube 前端替代品。
+*   **作用**：除了作为观看界面，它常被用作 `yt-dlp` 的备用 API 来源（Instance API）。当 YouTube 官方接口对当前 IP 限流或屏蔽时，配置 Invidious 实例可以帮助获取视频元数据，规避部分访问限制。
+*   **如何使用**：在 `config.py` 中配置 `INVIDIOUS_INSTANCE`（填入一个有效的 Invidious 实例 URL，如 `https://yewtu.be`）。
 
 ### 什么是 PO Token (Proof of Origin)？
-这是 YouTube 为了防止机器人和非官方客户端下载而引入的一种验证机制。
-*   **作用**：如果你发现下载经常报 403 错误，或者被 YouTube 识别为机器人，可能需要提供这个 Token 来证明你是“合法来源”。
-*   **相关文档**：详见 [yt-dlp Wiki - Extractors: YouTube](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube)。
-*   **如何使用**：本工具在 `config.py` 中预留了 `YOUTUBE_PO_TOKEN` 和 `YOUTUBE_POT_PROVIDER` 字段，你可以根据 `yt-dlp` 的要求填入获取到的 Token 或 Provider 脚本。
+PO Token（来源证明）是 YouTube 引入的一种反爬虫验证机制，由其 BotGuard (Web) 或 DroidGuard (Android) 组件生成。
+*   **典型症状**：下载速度被严重限制（如卡在几十 KB/s），或者直接报错 `Sign in to confirm you're not a bot`。
+*   **作用**：这个 Token 向 YouTube 证明当前的请求来自于一个真实的浏览器或合法的客户端环境，而非简单的脚本。提供有效的 Token 可以解除限速和 403 禁止访问。
+*   **相关文档**：详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"](https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors)。
+*   **如何使用**：
+    1.  **手动填入**：从浏览器中提取 Token，填入 `config.py` 的 `YOUTUBE_PO_TOKEN`。
+    2.  **自动获取**：配置 `YOUTUBE_POT_PROVIDER` 使用第三方脚本动态生成。
+    *原理上，这对应 `yt-dlp` 的参数：`--extractor-args "youtube:player_client=web;po_token=..."`。*
 
 ## 常见问题
 
