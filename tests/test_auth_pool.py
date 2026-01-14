@@ -1,0 +1,83 @@
+import threading
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+from yt_dlp_wrapper.auth.pool import (
+    YouTubeAccount,
+    YouTubeAccountPool,
+    discover_accounts,
+    get_account_paths,
+    parse_ytdlp_speed_to_bps,
+)
+
+
+class TestYouTubeAccountPool(unittest.TestCase):
+    def test_pick_next_no_accounts(self) -> None:
+        pool = YouTubeAccountPool([])
+        idx, wait_s = pool.pick_next(current_idx=None)
+        self.assertEqual(idx, -1)
+        self.assertEqual(wait_s, 0.0)
+
+    def test_pick_next_round_robin(self) -> None:
+        accounts = [
+            YouTubeAccount(name="a", cookies_file=Path("/tmp/a.txt")),
+            YouTubeAccount(name="b", cookies_file=Path("/tmp/b.txt")),
+            YouTubeAccount(name="c", cookies_file=Path("/tmp/c.txt")),
+        ]
+        pool = YouTubeAccountPool(accounts, cooldown_seconds=10.0)
+        self.assertEqual(pool.pick_next(0)[0], 1)
+        self.assertEqual(pool.pick_next(1)[0], 2)
+        self.assertEqual(pool.pick_next(2)[0], 0)
+
+    def test_pick_next_all_cooling_down_returns_wait(self) -> None:
+        accounts = [
+            YouTubeAccount(name="a", cookies_file=Path("/tmp/a.txt"), cooldown_until=200.0),
+            YouTubeAccount(name="b", cookies_file=Path("/tmp/b.txt"), cooldown_until=150.0),
+        ]
+        pool = YouTubeAccountPool(accounts, cooldown_seconds=10.0)
+        with patch("yt_dlp_wrapper.auth.pool.time.time", return_value=100.0):
+            idx, wait_s = pool.pick_next(current_idx=0)
+        self.assertEqual(idx, 1)
+        self.assertAlmostEqual(wait_s, 50.0, places=6)
+
+    def test_mark_rate_limited_sets_cooldown(self) -> None:
+        accounts = [YouTubeAccount(name="a", cookies_file=Path("/tmp/a.txt"))]
+        pool = YouTubeAccountPool(accounts, cooldown_seconds=10.0)
+        with patch("yt_dlp_wrapper.auth.pool.time.time", return_value=100.0):
+            until = pool.mark_rate_limited(0)
+        self.assertAlmostEqual(until, 110.0, places=6)
+        self.assertAlmostEqual(accounts[0].cooldown_until, 110.0, places=6)
+        self.assertEqual(accounts[0].rate_limited, 1)
+
+    def test_parse_ytdlp_speed_to_bps(self) -> None:
+        self.assertEqual(parse_ytdlp_speed_to_bps(None), 0.0)
+        self.assertEqual(parse_ytdlp_speed_to_bps("..."), 0.0)
+        self.assertEqual(parse_ytdlp_speed_to_bps("1KiB/s"), 1024.0)
+        self.assertEqual(parse_ytdlp_speed_to_bps("1MiB/s"), 1024.0**2)
+        self.assertEqual(parse_ytdlp_speed_to_bps("1MB/s"), 1000.0**2)
+        self.assertEqual(parse_ytdlp_speed_to_bps("5K/s"), 5000.0)
+
+
+class TestAccountDiscovery(unittest.TestCase):
+    def test_get_account_paths(self) -> None:
+        with TemporaryDirectory() as td:
+            base = Path(td)
+            profile_dir, cookies_file = get_account_paths("acc_1", accounts_dir=base)
+            self.assertEqual(profile_dir, base / "acc_1" / "browser-profile")
+            self.assertEqual(cookies_file, base / "acc_1" / "youtube_cookies.txt")
+
+    def test_discover_accounts(self) -> None:
+        with TemporaryDirectory() as td:
+            base = Path(td)
+            (base / "b").mkdir(parents=True)
+            (base / "a").mkdir(parents=True)
+            (base / "a" / "youtube_cookies.txt").write_text("cookies", encoding="utf-8")
+            (base / "b" / "youtube_cookies.txt").write_text("cookies", encoding="utf-8")
+
+            accounts = discover_accounts(accounts_dir=base)
+            self.assertEqual([a.name for a in accounts], ["a", "b"])
+            self.assertTrue(all(a.cookies_file.exists() for a in accounts))
+
+

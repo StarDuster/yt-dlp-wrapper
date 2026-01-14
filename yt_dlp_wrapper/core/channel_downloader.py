@@ -735,6 +735,10 @@ class YouTubeDownloader:
         except Exception as e:
             self._log_msg(f"Error reading output for {channel_name}: {e}", "error", message_callback)
         
+        if current_video_started:
+            result.success_count += 1
+            current_video_started = False
+
         result.return_code = process.wait()
         
         # Log summary
