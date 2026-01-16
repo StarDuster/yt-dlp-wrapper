@@ -158,8 +158,34 @@ class DownloadResult:
 # =============================================================================
 
 def _normalize_error_text(text: str) -> str:
-    """Unify fancy apostrophes for matching consistency."""
-    return (text or "").replace("'", "'")
+    """
+    Normalize common Unicode punctuation to improve regex matching stability.
+
+    yt-dlp sometimes emits typographic quotes like "you’re" (U+2019). Many of our
+    regex patterns use ASCII apostrophes, so normalize these first.
+    """
+    s = text or ""
+    # Common apostrophe / quote variants seen in yt-dlp output.
+    # - U+2019 RIGHT SINGLE QUOTATION MARK: you’re
+    # - U+2018 LEFT SINGLE QUOTATION MARK: ‘
+    # - U+02BC MODIFIER LETTER APOSTROPHE
+    # - U+FF07 FULLWIDTH APOSTROPHE
+    # - U+2032 PRIME (occasionally used as apostrophe)
+    # - U+00B4 ACUTE ACCENT (occasionally used as apostrophe)
+    s = s.translate(
+        {
+            ord("\u2019"): ord("'"),
+            ord("\u2018"): ord("'"),
+            ord("\u02BC"): ord("'"),
+            ord("\uFF07"): ord("'"),
+            ord("\u2032"): ord("'"),
+            ord("\u00B4"): ord("'"),
+            ord("\u201C"): ord('"'),
+            ord("\u201D"): ord('"'),
+            ord("\uFF02"): ord('"'),
+        }
+    )
+    return s
 
 
 def extract_http_status_from_text(text: str) -> Optional[int]:

@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from yt_dlp_wrapper.downloaders.channel import YouTubeDownloader
+from yt_dlp_wrapper.auth.pool import YouTubeAccount
 from yt_dlp_wrapper.core.diagnostics import DownloadResult
 
 
@@ -124,3 +125,40 @@ class TestChannelDownloaderUtils(unittest.TestCase):
             self.assertEqual(result.success_count, 1)
             self.assertEqual(result.total_errors, 0)
 
+    def test_download_channel_includes_cookies_arg_when_account_provided(self) -> None:
+        with TemporaryDirectory() as td:
+            tmp_dir = Path(td)
+            d = YouTubeDownloader(download_dir=tmp_dir, skip_dependency_checks=True)
+
+            cookies_file = tmp_dir / "acc1.cookies.txt"
+            cookies_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            account = YouTubeAccount(name="acc1", cookies_file=cookies_file)
+
+            seen_cmds: list[list[str]] = []
+
+            def _fake_run(cmd: list, *_args, **_kwargs) -> DownloadResult:
+                # Record commands instead of running yt-dlp.
+                seen_cmds.append(list(cmd))
+                return DownloadResult(return_code=0)
+
+            with (
+                patch.object(d, "_get_channel_video_ids", return_value=[]),
+                patch.object(d, "_run_ytdlp_with_progress", side_effect=_fake_run),
+            ):
+                result = d.download_channel(
+                    url="https://www.youtube.com/@example",
+                    output_dir=tmp_dir,
+                    debug=False,
+                    no_invidious=True,
+                    accounts=[account],
+                    account_pool=None,
+                )
+
+            self.assertIsNotNone(result.final_status)
+            self.assertGreaterEqual(len(seen_cmds), 1)
+
+            for cmd in seen_cmds:
+                with self.subTest(cmd=cmd):
+                    self.assertIn("--cookies", cmd)
+                    idx = cmd.index("--cookies")
+                    self.assertEqual(cmd[idx + 1], str(cookies_file))

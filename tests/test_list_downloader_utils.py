@@ -217,3 +217,52 @@ class TestListDownloaderUtils(unittest.TestCase):
             "failed",
         )
 
+    def test_download_from_input_list_sets_cookiefile_when_account_available(self) -> None:
+        """
+        Ensure we pass cookiefile to yt-dlp when an account cookies file exists.
+
+        This is important for avoiding YouTube anti-bot flows ("confirm you're not a bot")
+        and for accessing member-only content.
+        """
+        vid = "dQw4w9WgXcQ"
+        created_opts: list[dict] = []
+
+        class _FakeYDL:
+            def __init__(self, opts: dict):
+                created_opts.append(opts)
+
+            def download(self, urls: list[str]) -> int:
+                return 0
+
+        with TemporaryDirectory() as td:
+            tmp_dir = Path(td)
+            input_list = tmp_dir / "input.txt"
+            input_list.write_text(f"{vid}\n", encoding="utf-8")
+
+            # Create a minimal accounts dir with one account cookies file:
+            # <accounts_dir>/<name>/youtube_cookies.txt
+            accounts_dir = tmp_dir / "accounts"
+            cookies_file = accounts_dir / "acc1" / "youtube_cookies.txt"
+            cookies_file.parent.mkdir(parents=True, exist_ok=True)
+            cookies_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+
+            with (
+                patch("yt_dlp_wrapper.downloaders.list.yt_dlp.YoutubeDL", _FakeYDL),
+                patch("yt_dlp_wrapper.downloaders.list._has_nvidia_gpu", return_value=False),
+            ):
+                rc = list_downloader.download_from_input_list(
+                    input_list_path=input_list,
+                    output_dir=tmp_dir,
+                    workers=1,
+                    limit=0,
+                    debug=False,
+                    no_invidious=True,
+                    accounts_dir=accounts_dir,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(created_opts, "Expected at least one YoutubeDL instance to be created")
+        # All created opts should carry cookiefile (base YDL, and any per-attempt YDLs).
+        for opts in created_opts:
+            with self.subTest(opts_keys=sorted(list(opts.keys()))):
+                self.assertEqual(opts.get("cookiefile"), str(cookies_file))
