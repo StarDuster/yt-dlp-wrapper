@@ -31,6 +31,42 @@ class TestListDownloaderUtils(unittest.TestCase):
         self.assertEqual(list_downloader._format_eta(60), "01:00")
         self.assertEqual(list_downloader._format_eta(3661), "1:01:01")
 
+    def test_speed_column_item_per_second_is_stable_between_completions(self) -> None:
+        col = list_downloader.SpeedColumn(worker_speeds={})
+
+        class _Task:
+            def __init__(self, completed: float):
+                self.completed = completed
+                self.total = 100
+                self.fields = {"mode": "count"}
+
+        t = _Task(0.0)
+        with patch("yt_dlp_wrapper.core.list_downloader.time.time") as mock_time:
+            mock_time.return_value = 0.0
+            self.assertEqual(str(col.render(t)), "0 it/s")
+
+            # First completion after 20s -> 1/20 = 0.05 it/s
+            mock_time.return_value = 20.0
+            t.completed = 1.0
+            self.assertEqual(str(col.render(t)), "0.05 it/s")
+
+            # No further completions -> keep last rate (should not fall back to 0)
+            mock_time.return_value = 25.0
+            t.completed = 1.0
+            self.assertEqual(str(col.render(t)), "0.05 it/s")
+
+    def test_speed_column_overall_uses_segment_item_rates_when_available(self) -> None:
+        col = list_downloader.SpeedColumn(worker_speeds={}, worker_item_rates={0: 0.10, 1: 0.25})
+
+        class _Task:
+            def __init__(self):
+                self.completed = 0.0
+                self.total = 100
+                self.fields = {"mode": "count"}
+
+        t = _Task()
+        self.assertEqual(str(col.render(t)), "0.35 it/s")
+
     def test_backoff_sleep_deterministic(self) -> None:
         self.assertEqual(list_downloader._backoff_sleep(1, 1.0, 60.0, 0.0), 1.0)
         self.assertEqual(list_downloader._backoff_sleep(2, 1.0, 60.0, 0.0), 2.0)
