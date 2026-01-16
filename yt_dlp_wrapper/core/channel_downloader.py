@@ -14,12 +14,8 @@ from urllib.parse import urlparse
 
 from .. import config
 from ..auth.pool import YouTubeAccount, YouTubeAccountPool
-from .models import (
-    DownloadResult,
-    RATE_LIMIT_PATTERNS,
-    MEMBERS_ONLY_PATTERNS,
-    UNAVAILABLE_PATTERNS
-)
+from .error_diagnosis import classify_channel_error_line
+from .models import DownloadResult
 
 logger = logging.getLogger(__name__)
 
@@ -343,21 +339,7 @@ class YouTubeDownloader:
             'unavailable' - Private/removed video
             'other' - Unknown error
         """
-        normalized = error_line.replace("’", "'")
-        
-        for pattern in RATE_LIMIT_PATTERNS:
-            if re.search(pattern, normalized, re.IGNORECASE):
-                return 'rate_limit'
-        
-        for pattern in MEMBERS_ONLY_PATTERNS:
-            if re.search(pattern, normalized, re.IGNORECASE):
-                return 'members_only'
-        
-        for pattern in UNAVAILABLE_PATTERNS:
-            if re.search(pattern, normalized, re.IGNORECASE):
-                return 'unavailable'
-        
-        return 'other'
+        return classify_channel_error_line(error_line)
 
     def _determine_final_status(self, result: DownloadResult, channel_name: str, message_callback: Optional[Callable] = None) -> tuple[str, Optional[str]]:
         """Determine final download status based on combined results."""
