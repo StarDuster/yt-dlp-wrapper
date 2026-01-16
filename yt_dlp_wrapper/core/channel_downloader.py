@@ -197,31 +197,54 @@ class YouTubeDownloader:
                 return []
             return ids
 
+        def _write_ids_to_cache(ids: list[str]) -> None:
+            if cache_file is None or not ids:
+                return
+            try:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = cache_file.with_suffix(cache_file.suffix + ".tmp")
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    for vid in ids:
+                        f.write(f"https://www.youtube.com/watch?v={vid}\n")
+                os.replace(tmp_path, cache_file)
+                self._log_msg(
+                    f"Saved {len(ids)} ids to list cache: {cache_file}",
+                    "info",
+                    message_callback,
+                )
+            except Exception as e:
+                self._log_msg(
+                    f"Failed to write list cache {cache_file}: {e}",
+                    "warning",
+                    message_callback,
+                )
+
         # Try cache first (if provided)
         if cache_file is not None:
             try:
-                if cache_file.exists() and cache_file.stat().st_size > 0 and _is_cache_fresh(cache_file):
-                    cached_ids = _read_ids_from_cache(cache_file)
-                    if cached_ids:
-                        duration = time.time() - start_time
-                        self._log_msg(
-                            f"Using cached video list: {cache_file} ({len(cached_ids)} ids, {duration:.1f}s)",
-                            "info",
-                            message_callback,
-                        )
-                        return cached_ids
-                    else:
+                if cache_file.exists() and cache_file.stat().st_size > 0:
+                    cache_fresh = _is_cache_fresh(cache_file)
+                    if cache_fresh:
+                        cached_ids = _read_ids_from_cache(cache_file)
+                        if cached_ids:
+                            duration = time.time() - start_time
+                            self._log_msg(
+                                f"Using cached video list: {cache_file} ({len(cached_ids)} ids, {duration:.1f}s)",
+                                "info",
+                                message_callback,
+                            )
+                            return cached_ids
                         self._log_msg(
                             f"Cached list exists but could not be parsed, will refresh: {cache_file}",
                             "warning",
                             message_callback,
                         )
-                elif cache_file.exists() and cache_file.stat().st_size > 0 and not _is_cache_fresh(cache_file):
-                    self._log_msg(
-                        f"Cached list expired (mtime); refreshing: {cache_file}",
-                        "info",
-                        message_callback,
-                    )
+                    else:
+                        self._log_msg(
+                            f"Cached list expired (mtime); refreshing: {cache_file}",
+                            "info",
+                            message_callback,
+                        )
             except Exception:
                 # Best-effort: fall through to network fetch
                 pass
@@ -239,88 +262,34 @@ class YouTubeDownloader:
                 cmd.extend(["--quiet", "--no-warnings"])
             
             cmd.append(url)
-            
-            self._log_msg(f"[DEBUG] Running: {' '.join(cmd)}", "debug", message_callback)
-            
-            ids: list[str] = []
-            if debug:
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
+
+            # Large channels may take time to enumerate; use a longer timeout here
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+
+            duration = time.time() - start_time
+
+            if result.returncode == 0:
+                ids = [
+                    vid.strip()
+                    for vid in result.stdout.splitlines()
+                    if yt_id_re.match((vid or "").strip())
+                ]
+                self._log_msg(
+                    f"Successfully fetched {len(ids)} video IDs in {duration:.1f}s",
+                    "info",
+                    message_callback,
                 )
-                for line in process.stdout:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if yt_id_re.match(line):
-                        ids.append(line)
-                    else:
-                        self._log_msg(f"[yt-dlp] {line}", "info", message_callback)
-                process.wait()
-                duration = time.time() - start_time
-                if process.returncode == 0:
-                    self._log_msg(f"Successfully fetched {len(ids)} video IDs in {duration:.1f}s", "info", message_callback)
-                    if cache_file is not None and ids:
-                        try:
-                            cache_file.parent.mkdir(parents=True, exist_ok=True)
-                            tmp_path = cache_file.with_suffix(cache_file.suffix + ".tmp")
-                            with open(tmp_path, "w", encoding="utf-8") as f:
-                                for vid in ids:
-                                    f.write(f"https://www.youtube.com/watch?v={vid}\n")
-                            os.replace(tmp_path, cache_file)
-                            self._log_msg(
-                                f"Saved {len(ids)} ids to list cache: {cache_file}",
-                                "info",
-                                message_callback,
-                            )
-                        except Exception as e:
-                            self._log_msg(
-                                f"Failed to write list cache {cache_file}: {e}",
-                                "warning",
-                                message_callback,
-                            )
-                    return ids
-                else:
-                    self._log_msg(f"Failed to fetch video IDs (code {process.returncode}) after {duration:.1f}s", "error", message_callback)
-                    return []
-            else:
-                # Large channels may take time to enumerate; use a longer timeout here
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-                
-                duration = time.time() - start_time
-                
-                if result.returncode == 0:
-                    ids = [vid.strip() for vid in result.stdout.split("\n") if vid.strip()]
-                    self._log_msg(f"Successfully fetched {len(ids)} video IDs in {duration:.1f}s", "info", message_callback)
-                    if cache_file is not None and ids:
-                        try:
-                            cache_file.parent.mkdir(parents=True, exist_ok=True)
-                            tmp_path = cache_file.with_suffix(cache_file.suffix + ".tmp")
-                            with open(tmp_path, "w", encoding="utf-8") as f:
-                                for vid in ids:
-                                    f.write(f"https://www.youtube.com/watch?v={vid}\n")
-                            os.replace(tmp_path, cache_file)
-                            self._log_msg(
-                                f"Saved {len(ids)} ids to list cache: {cache_file}",
-                                "info",
-                                message_callback,
-                            )
-                        except Exception as e:
-                            self._log_msg(
-                                f"Failed to write list cache {cache_file}: {e}",
-                                "warning",
-                                message_callback,
-                            )
-                    return ids
-                
-                # Debug info for failure
-                self._log_msg(f"Failed to fetch video IDs (code {result.returncode}) after {duration:.1f}s", "error", message_callback)
-                error_preview = result.stderr[-500:] if result.stderr else "No stderr output"
-                self._log_msg(f"yt-dlp error output: {error_preview}", "error", message_callback)
-                return []
+                _write_ids_to_cache(ids)
+                return ids
+
+            self._log_msg(
+                f"Failed to fetch video IDs (code {result.returncode}) after {duration:.1f}s",
+                "error",
+                message_callback,
+            )
+            error_preview = result.stderr[-500:] if result.stderr else "No stderr output"
+            self._log_msg(f"yt-dlp error output: {error_preview}", "error", message_callback)
+            return []
 
         except subprocess.TimeoutExpired:
             self._log_msg(f"Timeout while fetching video IDs for {url}", "error", message_callback)
@@ -402,7 +371,7 @@ class YouTubeDownloader:
             channel_name: Name for logging
             progress_callback: Function(percent, speed, eta, current_file, item_index, item_total) -> None
             message_callback: Function(str) -> None for non-progress output
-            debug: If True, output all unmatched yt-dlp lines for debugging
+            debug: Reserved for compatibility (no effect here)
             
         Returns:
             DownloadResult with counts and error details
@@ -428,12 +397,6 @@ class YouTubeDownloader:
         # Pattern for "Downloading video 1 of 3" or "Downloading item 1 of 3"
         # Relaxed regex to match even if [download] prefix is missing or different
         item_pattern = re.compile(r"Downloading\s+(?:video|item)\s+(\d+)\s+of\s+(\d+)", re.IGNORECASE)
-        
-        # Pattern for successful extraction (video processed)
-        extract_pattern = re.compile(r"\[ExtractAudio\]\s+Destination:")
-        
-        # Pattern for debug/info messages
-        info_pattern = re.compile(r"^\[(debug|info|youtube|youtube:tab|youtube\+invidious)\]\s+(.+)")
 
         last_print_time = 0
         current_file = ""
@@ -444,15 +407,6 @@ class YouTubeDownloader:
         # Track if current video succeeded
         current_video_started = False
 
-        # State for handling "Downloading as multiple playlists" (tabs)
-        multi_playlist_mode = False
-        master_playlist_name = None
-        current_playlist_name = None
-        
-        # Regex for playlist detection
-        multi_playlist_pattern = re.compile(r"Downloading as multiple playlists", re.IGNORECASE)
-        playlist_pattern = re.compile(r"\[download\]\s+Downloading playlist:\s+(.+)", re.IGNORECASE)
-        
         # Pattern to extract video ID from various yt-dlp messages
         video_id_pattern = re.compile(r"\[youtube(?:\+invidious)?\]\s+([a-zA-Z0-9_-]{11}):")
         # Pattern for archive skip (common when using --download-archive / --batch-file)
@@ -465,10 +419,6 @@ class YouTubeDownloader:
             r"\[download\]\s+([0-9A-Za-z_-]{11})\s+has already been downloaded",
             re.IGNORECASE,
         )
-
-        # Keep track of recent lines for debugging context
-        from collections import deque
-        recent_lines = deque(maxlen=20)
 
         # If caller knows total items (e.g. batch-file), initialize item counters.
         if item_total_hint is not None:
@@ -517,8 +467,6 @@ class YouTubeDownloader:
                 line = line.strip()
                 if not line:
                     continue
-                
-                recent_lines.append(line)
 
                 # Batch-file / archive skip case: yt-dlp may not emit [youtube] lines
                 m_arch = archive_skip_pattern.search(line)
@@ -547,26 +495,9 @@ class YouTubeDownloader:
                         current_video_started = True
                         _advance_item(new_vid)
 
-                # Check for "multiple playlists" mode (tabs)
-                if multi_playlist_pattern.search(line):
-                    multi_playlist_mode = True
-                    continue
-
-                # Check for playlist name
-                match_playlist = playlist_pattern.search(line)
-                if match_playlist:
-                    new_playlist_name = match_playlist.group(1).strip()
-                    current_playlist_name = new_playlist_name
-                    if multi_playlist_mode and master_playlist_name is None:
-                        master_playlist_name = new_playlist_name
-                    continue
-
                 # Check for item progress (video x of y)
                 match_item = item_pattern.search(line)
                 if match_item:
-                    if multi_playlist_mode and current_playlist_name == master_playlist_name:
-                        continue
-
                     current_item_index = int(match_item.group(1))
                     current_item_total = int(match_item.group(2))
                     if progress_callback:
@@ -646,13 +577,9 @@ class YouTubeDownloader:
                     if error_type == 'rate_limit':
                         result.rate_limited_count += 1
                         result.rate_limit_errors.append(line)
-                        
-                        # Construct context message
-                        context_msg = "\n".join(f"    {l}" for l in recent_lines)
                         self._log_msg(
-                            f"[{channel_name}] Rate limit/bot detected! Aborting current attempt.\n"
-                            f"Trigger line: {line}\n"
-                            f"Recent log context:\n{context_msg}",
+                            f"[{channel_name}] Rate limit/bot detected! Aborting current attempt. "
+                            f"Trigger line: {line}",
                             "warning",
                             message_callback
                         )
@@ -694,25 +621,6 @@ class YouTubeDownloader:
                     if not message_callback and not progress_callback:
                         print(f"[{channel_name}] {line}")
                     continue
-
-                # Check for debug/info messages
-                match_info = info_pattern.search(line)
-                if match_info:
-                    msg = f"[{channel_name}] {line}"
-                    if message_callback:
-                        # Use dim style for debug info to not clutter too much
-                        message_callback(f"[dim]{msg}[/dim]")
-                    elif not progress_callback:
-                        print(msg)
-                    continue
-
-                # Fallback: output unmatched lines only in debug mode
-                if debug:
-                    msg = f"[{channel_name}] {line}"
-                    if message_callback:
-                        message_callback(f"[dim]{msg}[/dim]")
-                    elif not progress_callback:
-                        print(msg)
 
         except Exception as e:
             self._log_msg(f"Error reading output for {channel_name}: {e}", "error", message_callback)
@@ -764,7 +672,7 @@ class YouTubeDownloader:
             language: Subtitle language (default: 'ja' for Japanese)
             progress_callback: Optional callback for progress updates
             message_callback: Optional callback for non-progress messages
-            debug: If True, output all yt-dlp messages for debugging
+            debug: If True, keep list-fetch output verbose
             cookies_file_path: Optional path to Netscape format cookies file for auth
             no_invidious: If True, disable Invidious instances and use direct connection only
 
