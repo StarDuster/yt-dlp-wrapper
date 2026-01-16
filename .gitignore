@@ -41,3 +41,6 @@ unavailable.txt
 
 # OS
 .DS_Store
+
+# uv lock file
+uv.lock
