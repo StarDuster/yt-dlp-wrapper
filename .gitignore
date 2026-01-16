@@ -44,3 +44,6 @@ unavailable.txt
 
 # uv lock file
 uv.lock
+
+# Misc scripts
+misc/
