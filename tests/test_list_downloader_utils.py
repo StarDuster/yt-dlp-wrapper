@@ -2,6 +2,7 @@ import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from yt_dlp_wrapper.core import list_downloader
 
@@ -88,6 +89,79 @@ class TestListDownloaderUtils(unittest.TestCase):
         self.assertEqual(item2["start_ms"], 1500)
         self.assertEqual(item2["end_ms"], 2750)
         self.assertEqual(item2["key"], "dQw4w9WgXcQ:1500-2750")
+
+    def test_download_from_input_list_mixed_items_builds_segment_opts(self) -> None:
+        vid = "dQw4w9WgXcQ"
+        created_opts: list[dict] = []
+        downloaded_urls: list[str] = []
+        sleep_calls: list[float] = []
+
+        class _FakeYDL:
+            def __init__(self, opts: dict):
+                created_opts.append(opts)
+
+            def download(self, urls: list[str]) -> int:
+                downloaded_urls.extend(urls)
+                return 0
+
+        def _fake_sleep(s: float) -> None:
+            # Avoid slowing down tests; record durations for assertions.
+            try:
+                sleep_calls.append(float(s))
+            except Exception:
+                pass
+
+        with TemporaryDirectory() as td:
+            tmp_dir = Path(td)
+            input_list = tmp_dir / "input.txt"
+            input_list.write_text(f"{vid}\n{vid},1.5,2.75\n", encoding="utf-8")
+
+            with (
+                patch("yt_dlp_wrapper.core.list_downloader.yt_dlp.YoutubeDL", _FakeYDL),
+                patch("yt_dlp_wrapper.core.list_downloader._has_nvidia_gpu", return_value=False),
+                patch.object(list_downloader.config, "YOUTUBE_SLEEP_REQUESTS", 2.0),
+                patch.object(list_downloader.config, "YOUTUBE_SLEEP_INTERVAL", 5.0),
+                patch.object(list_downloader.config, "YOUTUBE_MAX_SLEEP_INTERVAL", 8.0),
+                patch.object(list_downloader.config, "YOUTUBE_INPUT_LIST_SLEEP", 7.0),
+                patch("yt_dlp_wrapper.core.list_downloader.time.sleep", _fake_sleep),
+            ):
+                rc = list_downloader.download_from_input_list(
+                    input_list_path=input_list,
+                    output_dir=tmp_dir,
+                    workers=1,
+                    limit=0,
+                    debug=False,
+                    no_invidious=True,
+                    accounts_dir=None,
+                )
+
+        self.assertEqual(rc, 0)
+        # base download + segment download should both run
+        self.assertEqual(len(downloaded_urls), 2)
+
+        # This list contains slice tasks, so all yt-dlp sleep settings must be disabled
+        # even if config has non-zero defaults.
+        for opts in created_opts:
+            self.assertNotIn("sleep_interval_requests", opts)
+            self.assertNotIn("sleep_interval", opts)
+            self.assertNotIn("max_sleep_interval", opts)
+
+        # Also should not sleep between items via YOUTUBE_INPUT_LIST_SLEEP=7.0
+        self.assertNotIn(7.0, sleep_calls)
+
+        # Find segment opts (it should include download_ranges and force_keyframes_at_cuts)
+        seg_opts = next((o for o in created_opts if "download_ranges" in o), None)
+        self.assertIsNotNone(seg_opts)
+        assert seg_opts is not None
+        self.assertTrue(seg_opts.get("force_keyframes_at_cuts"))
+
+        # outtmpl includes ms range
+        self.assertIn("[1500-2750]", str(seg_opts.get("outtmpl")))
+
+        # CPU fallback uses libx264
+        eda = seg_opts.get("external_downloader_args") or {}
+        ffmpeg_o = eda.get("ffmpeg_o") or []
+        self.assertIn("libx264", ffmpeg_o)
 
     def test_classify_error(self) -> None:
         self.assertEqual(

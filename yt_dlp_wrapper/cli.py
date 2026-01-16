@@ -102,6 +102,7 @@ def _handle_video_list(args: argparse.Namespace) -> int:
     )
     workers = int(args.workers or 8)
     limit = int(args.limit or 0)
+    disable_nvenc = bool(getattr(args, "disable_nvenc", False))
 
     return download_from_input_list(
         input_list_path=input_path,
@@ -111,6 +112,7 @@ def _handle_video_list(args: argparse.Namespace) -> int:
         debug=bool(args.debug),
         no_invidious=bool(args.no_invidious),
         accounts_dir=Path(args.accounts_dir).expanduser().resolve() if args.accounts_dir else None,
+        disable_nvenc=disable_nvenc,
     )
 
 
@@ -181,41 +183,140 @@ def _account_clear(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="yt-dlp-wrapper")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        prog="yt-dlp-wrapper",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="A yt-dlp wrapper for batch downloading YouTube channels and video lists.",
+        epilog="""\
+Examples:
+  # Download from a channel list
+  yt-dlp-wrapper download --channel-list channels.txt --output-dir ~/videos
 
-    download = subparsers.add_parser("download", help="Download from channel list or video list")
+  # Download from a video list (with 8 concurrent workers)
+  yt-dlp-wrapper download --video-list videos.txt --workers 8
+
+  # Login to an account (for member-only videos or rate limit bypass)
+  yt-dlp-wrapper account login --account myaccount
+
+  # Refresh cookies
+  yt-dlp-wrapper account refresh --account myaccount
+
+For more information: https://github.com/your-repo/yt-dlp-wrapper
+""",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True, title="commands", metavar="COMMAND")
+
+    download = subparsers.add_parser(
+        "download",
+        help="Batch download from channel list or video list",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Batch download YouTube videos from a channel list or video list.",
+        epilog="""\
+Examples:
+  # Download all videos from channels (default subtitle language: ja)
+  yt-dlp-wrapper download --channel-list channels.txt
+
+  # Specify output directory and subtitle language
+  yt-dlp-wrapper download --channel-list channels.txt --output-dir ~/videos --lang zh
+
+  # Download from video list with limit
+  yt-dlp-wrapper download --video-list videos.txt --limit 100 --workers 4
+
+  # Disable NVENC hardware encoding (use CPU encoding)
+  yt-dlp-wrapper download --video-list videos.txt --disable-nvenc
+
+  # Disable Invidious proxy
+  yt-dlp-wrapper download --channel-list channels.txt --no-invidious
+
+List file format:
+  - One URL or video ID per line
+  - Lines starting with # are comments
+  - Empty lines are ignored
+""",
+    )
     group = download.add_mutually_exclusive_group(required=True)
-    group.add_argument("--channel-list", help="File containing channel URLs")
-    group.add_argument("--video-list", help="File containing video IDs/URLs")
-    download.add_argument("--output-dir", help="Output directory")
-    download.add_argument("--workers", type=int, help="Worker count (video list mode)")
-    download.add_argument("--limit", type=int, help="Limit items (video list mode)")
-    download.add_argument("--lang", default="ja", help="Subtitle language (channel mode)")
+    group.add_argument("--channel-list", metavar="FILE", help="Path to channel list file (one channel URL per line)")
+    group.add_argument("--video-list", metavar="FILE", help="Path to video list file (one video ID or URL per line)")
+    download.add_argument("--output-dir", "-o", metavar="DIR", help="Output directory (default: YOUTUBE_DOWNLOAD_DIR from config)")
+    download.add_argument("--workers", "-w", type=int, default=8, metavar="N", help="Number of concurrent workers (video list mode only, default: 8)")
+    download.add_argument(
+        "--disable-nvenc",
+        action="store_true",
+        help="Disable NVENC hardware encoding; force libx264 (CPU) for segment transcoding",
+    )
+    download.add_argument("--limit", "-n", type=int, default=0, metavar="N", help="Limit number of downloads (video list mode only, 0=unlimited)")
+    download.add_argument("--lang", "-l", default="ja", metavar="LANG", help="Subtitle language code (channel mode only, default: ja)")
     download.add_argument(
         "--sleep",
         type=_non_negative_float,
+        metavar="SEC",
         help="Seconds to sleep between requests (overrides config.YOUTUBE_SLEEP_REQUESTS)",
     )
-    download.add_argument("--no-invidious", action="store_true", help="Disable Invidious")
-    download.add_argument("--debug", action="store_true", help="Debug output")
-    download.add_argument("--accounts-dir", help="Override accounts directory")
+    download.add_argument("--no-invidious", action="store_true", help="Disable Invidious proxy for fetching video lists")
+    download.add_argument("--debug", "-d", action="store_true", help="Enable debug output")
+    download.add_argument("--accounts-dir", metavar="DIR", help="Override accounts directory path")
 
-    account = subparsers.add_parser("account", help="Account management")
-    account_sub = account.add_subparsers(dest="action", required=True)
+    account = subparsers.add_parser(
+        "account",
+        help="Account management (login, refresh cookies, clear auth)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Manage YouTube account authentication with multi-account pool support.",
+        epilog="""\
+Examples:
+  # Login to default account (opens browser)
+  yt-dlp-wrapper account login
 
-    login = account_sub.add_parser("login", help="Login via browser")
-    login.add_argument("--account", help="Account name (for multi-account pool)")
-    login.add_argument("--headless", action="store_true", help="Headless login")
-    login.add_argument("--accounts-dir", help="Override accounts directory")
+  # Login to a specific account
+  yt-dlp-wrapper account login --account work
 
-    refresh = account_sub.add_parser("refresh", help="Refresh cookies via browser profile")
-    refresh.add_argument("--account", help="Account name (for multi-account pool)")
-    refresh.add_argument("--accounts-dir", help="Override accounts directory")
+  # Headless login (requires existing valid session)
+  yt-dlp-wrapper account login --account work --headless
 
-    clear = account_sub.add_parser("clear-auth", help="Clear auth data")
-    clear.add_argument("--account", help="Account name (for multi-account pool)")
-    clear.add_argument("--accounts-dir", help="Override accounts directory")
+  # Refresh cookies (no password required)
+  yt-dlp-wrapper account refresh --account work
+
+  # Clear account authentication data
+  yt-dlp-wrapper account clear-auth --account work
+
+Accounts directory structure:
+  accounts/
+  ├── account1/
+  │   ├── profile/      # Browser profile directory
+  │   └── cookies.txt   # Netscape format cookies
+  └── account2/
+      ├── profile/
+      └── cookies.txt
+""",
+    )
+    account_sub = account.add_subparsers(dest="action", required=True, title="actions", metavar="ACTION")
+
+    login = account_sub.add_parser(
+        "login",
+        help="Login via browser",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Open browser to login to YouTube and automatically save cookies.",
+    )
+    login.add_argument("--account", "-a", metavar="NAME", help="Account name (for multi-account pool)")
+    login.add_argument("--headless", action="store_true", help="Headless mode (no browser window)")
+    login.add_argument("--accounts-dir", metavar="DIR", help="Override accounts directory path")
+
+    refresh = account_sub.add_parser(
+        "refresh",
+        help="Refresh account cookies",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Refresh cookies using saved browser profile without re-login.",
+    )
+    refresh.add_argument("--account", "-a", metavar="NAME", help="Account name (for multi-account pool)")
+    refresh.add_argument("--accounts-dir", metavar="DIR", help="Override accounts directory path")
+
+    clear = account_sub.add_parser(
+        "clear-auth",
+        help="Clear account authentication data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Delete browser profile and cookies file (requires confirmation).",
+    )
+    clear.add_argument("--account", "-a", metavar="NAME", help="Account name (for multi-account pool)")
+    clear.add_argument("--accounts-dir", metavar="DIR", help="Override accounts directory path")
 
     return parser
 

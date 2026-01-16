@@ -7,6 +7,7 @@
 - **本地缓存视频列表**：首次运行时将频道内所有视频 ID 展开并缓存至本地文件，后续运行无需重新请求 YouTube API 翻页，提升重启时的恢复速度
 - **账号池与自动轮换**：支持配置多个 YouTube 账号，当某账号触发请求限制 (HTTP 429) 时自动切换至其他账号并设置冷却时间
 - **基于 Playwright 的认证**：通过真实浏览器环境完成登录，自动导出 Cookies
+- **视频切片下载**：支持指定时间范围下载视频片段，自动启用精确切片并转码（`--force-keyframes-at-cuts`），优先使用 NVIDIA GPU 加速
 
 ## 安装
 
@@ -49,6 +50,28 @@ yt-dlp-wrapper download --channel-list channels.txt --output-dir /data/youtube
 # 准备 videos.txt，每行一个链接或视频 ID
 yt-dlp-wrapper download --video-list videos.txt --workers 4
 ```
+
+### 4. 下载视频切片
+
+支持下载视频的指定时间段。在输入列表中使用 `video_id,start_time,end_time` 格式（时间单位为秒，支持小数）：
+
+```
+# segments.txt 示例（可混合完整视频和切片）
+dQw4w9WgXcQ
+abc123XYZab,10.5,30.0
+https://www.youtube.com/watch?v=xyz789ABC12,120,180.5
+```
+
+```bash
+yt-dlp-wrapper download --video-list segments.txt --workers 4
+```
+
+**工作原理**：
+
+- 工具会自动识别列表中带时间戳的行
+- 切片任务启用 `--force-keyframes-at-cuts` 以保证精确到毫秒级的裁剪
+- 自动检测 NVIDIA GPU：若存在则使用 `h264_nvenc` 硬件加速；否则使用 `libx264` 并输出警告
+- 切片输出文件名自动添加时间戳后缀，如 `Title [video_id][10500-30000].mp4`
 
 ## 账号池
 
