@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from yt_dlp_wrapper.core.channel_downloader import YouTubeDownloader
+from yt_dlp_wrapper.downloaders.channel import YouTubeDownloader
 
 
 class TestChannelListCache(unittest.TestCase):

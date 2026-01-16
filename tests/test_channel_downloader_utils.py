@@ -4,8 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from yt_dlp_wrapper.core.channel_downloader import YouTubeDownloader
-from yt_dlp_wrapper.core.models import DownloadResult
+from yt_dlp_wrapper.downloaders.channel import YouTubeDownloader
+from yt_dlp_wrapper.core.diagnostics import DownloadResult
 
 
 class _FakePopen:
@@ -85,7 +85,7 @@ class TestChannelDownloaderUtils(unittest.TestCase):
             cp = subprocess.CompletedProcess(
                 args=["yt-dlp"], returncode=0, stdout="CCCCCCCCCCC\nDDDDDDDDDDD\n", stderr=""
             )
-            with patch("yt_dlp_wrapper.core.channel_downloader.subprocess.run", return_value=cp) as run_mock:
+            with patch("yt_dlp_wrapper.downloaders.channel.subprocess.run", return_value=cp) as run_mock:
                 ids = d._get_channel_video_ids(
                     "https://www.youtube.com/@example",
                     cache_file=cache_file,
@@ -111,7 +111,7 @@ class TestChannelDownloaderUtils(unittest.TestCase):
                 ],
                 returncode=0,
             )
-            with patch("yt_dlp_wrapper.core.channel_downloader.subprocess.Popen", return_value=fake):
+            with patch("yt_dlp_wrapper.downloaders.channel.subprocess.Popen", return_value=fake):
                 result = d._run_ytdlp_with_progress(
                     ["yt-dlp", "--version"],
                     "chan",

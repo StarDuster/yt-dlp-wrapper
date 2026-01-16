@@ -1,6 +1,6 @@
 import unittest
 
-from yt_dlp_wrapper.core.error_diagnosis import (
+from yt_dlp_wrapper.core.diagnostics import (
     classify_channel_error_line,
     diagnose_ffmpeg_error,
     extract_http_status_from_text,

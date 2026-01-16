@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from yt_dlp_wrapper.core import list_downloader
+from yt_dlp_wrapper.downloaders import list as list_downloader
 
 
 class TestListDownloaderUtils(unittest.TestCase):
@@ -41,7 +41,7 @@ class TestListDownloaderUtils(unittest.TestCase):
                 self.fields = {"mode": "count"}
 
         t = _Task(0.0)
-        with patch("yt_dlp_wrapper.core.list_downloader.time.time") as mock_time:
+        with patch("yt_dlp_wrapper.downloaders.list.time.time") as mock_time:
             mock_time.return_value = 0.0
             self.assertEqual(str(col.render(t)), "0 it/s")
 
@@ -153,13 +153,13 @@ class TestListDownloaderUtils(unittest.TestCase):
             input_list.write_text(f"{vid}\n{vid},1.5,2.75\n", encoding="utf-8")
 
             with (
-                patch("yt_dlp_wrapper.core.list_downloader.yt_dlp.YoutubeDL", _FakeYDL),
-                patch("yt_dlp_wrapper.core.list_downloader._has_nvidia_gpu", return_value=False),
+                patch("yt_dlp_wrapper.downloaders.list.yt_dlp.YoutubeDL", _FakeYDL),
+                patch("yt_dlp_wrapper.downloaders.list._has_nvidia_gpu", return_value=False),
                 patch.object(list_downloader.config, "YOUTUBE_SLEEP_REQUESTS", 2.0),
                 patch.object(list_downloader.config, "YOUTUBE_SLEEP_INTERVAL", 5.0),
                 patch.object(list_downloader.config, "YOUTUBE_MAX_SLEEP_INTERVAL", 8.0),
                 patch.object(list_downloader.config, "YOUTUBE_INPUT_LIST_SLEEP", 7.0),
-                patch("yt_dlp_wrapper.core.list_downloader.time.sleep", _fake_sleep),
+                patch("yt_dlp_wrapper.downloaders.list.time.sleep", _fake_sleep),
             ):
                 rc = list_downloader.download_from_input_list(
                     input_list_path=input_list,

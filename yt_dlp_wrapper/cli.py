@@ -8,7 +8,7 @@ from rich.logging import RichHandler
 
 from . import config
 from .auth.pool import get_account_paths, load_accounts_from_config
-from .core.channel_downloader import YouTubeDownloader
+from .downloaders.channel import YouTubeDownloader
 
 
 def _setup_logging(debug: bool) -> None:
@@ -92,7 +92,7 @@ def _handle_channel_list(args: argparse.Namespace) -> int:
 
 
 def _handle_video_list(args: argparse.Namespace) -> int:
-    from .core.list_downloader import download_from_input_list
+    from .downloaders.list import download_from_input_list
 
     input_path = Path(args.video_list).expanduser().resolve()
     output_dir = (
