@@ -4,7 +4,7 @@
 
 ## 特性
 
-- **本地缓存视频列表**：首次运行时将频道内所有视频 ID 展开并缓存至本地文件，后续运行无需重新请求 YouTube API 翻页，提升重启时的恢复速度
+- **本地缓存视频列表**：首次运行时将频道内所有视频 ID 展开并缓存至本地文件，后续运行无需重新请求 YouTube API 翻页
 - **账号池与自动轮换**：支持配置多个 YouTube 账号，当某账号触发请求限制 (HTTP 429) 时自动切换至其他账号并设置冷却时间
 - **基于 Playwright 的认证**：通过真实浏览器环境完成登录，自动导出 Cookies
 - **视频切片下载**：支持指定时间范围下载视频片段，自动启用精确切片并转码（`--force-keyframes-at-cuts`），优先使用 NVIDIA GPU 加速
@@ -68,11 +68,18 @@ yt-dlp-wrapper download --video-list segments.txt --workers 4
 
 **工作原理**：
 
-- 工具会自动识别列表中带时间戳的行
-- 切片任务启用 `--force-keyframes-at-cuts` 以保证精确到毫秒级的裁剪
-- 自动检测 NVIDIA GPU：若存在则使用 `h264_nvenc` 硬件加速；否则使用 `libx264` 并输出警告
-- 如需强制使用 CPU 编码，可在命令中添加 `--disable-nvenc`
+- 切片任务启用 `--force-keyframes-at-cuts` 对齐关键帧以保证毫秒级的裁剪
+- 自动检测 NVIDIA GPU：若存在则使用 `h264_nvenc` 硬件加速；否则使用 `libx264`
+- 如需强制使用 CPU 编码，可在命令中添加 `--disable-nvenc`，注意线程不要多于 CPU 核心数
 - 切片输出文件名自动添加时间戳后缀，如 `Title [video_id][10500-30000].mp4`
+
+**编码策略**：
+
+视频编码的本质是在**画质**与**体积**之间权衡。常见的控制方式有两类：控制码率（CBR/VBR）或控制质量（CRF/CQP）。CRF/CQP 是一个"质量锚点"，数值越低画质越好、体积越大，通常 18 左右被视为"视觉无损"的参考点。
+
+在大规模归档场景中，**处理速度优先于压缩率**。硬件编码器（如 NVENC）的设计初衷是极速，但同码率下压缩效率不如 CPU。因此我们通常会使用较低的 CRF/QP 值（较高的码率），通过牺牲部分存储空间来换取极快的转码效率与高画质，避免转码成为下载队列的瓶颈。
+
+NVENC/libx264 编码参数配置见 [CONFIGURATION.md](./CONFIGURATION.md#切片下载--nvenc)。
 
 ## 账号池
 
@@ -128,7 +135,7 @@ yt-dlp-wrapper account login --account acc_2
 
 **方案 B：本地部署（推荐）**
 
-使用 Docker 在本地启动服务，最稳定且无网络延迟：
+使用 Docker 在本地启动服务：
 
 ```bash
 git clone https://github.com/iv-org/invidious.git

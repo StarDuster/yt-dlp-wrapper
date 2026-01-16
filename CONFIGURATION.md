@@ -57,7 +57,7 @@
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `YOUTUBE_NVENC_CONCURRENCY` | NVENC 并发上限（超出则自动回退到 CPU） | `8` |
+| `YOUTUBE_NVENC_CONCURRENCY` | NVENC 并发上限（超出则回退到 CPU） | `8` |
 | `YOUTUBE_SEGMENT_MAX_HEIGHT` | 切片下载的视频最大高度 | `1080` |
 | `YOUTUBE_NVENC_PRESET` | NVENC 预设（p1..p7，p1 最快） | `p1` |
 | `YOUTUBE_NVENC_TUNE` | NVENC tune（`hq`/`ll`/`ull`/`lossless`） | `ll` |
@@ -65,6 +65,34 @@
 | `YOUTUBE_NVENC_QP` | constqp 质量参数（数值越低画质越高） | `18` |
 
 > 备注：当输入列表包含切片任务时，`YOUTUBE_SLEEP_*` 与 `YOUTUBE_INPUT_LIST_SLEEP` 会被强制为 0，以避免额外等待拖慢转码流水线。
+
+#### 并发控制
+
+GeForce 显卡的 NVENC 并发会话数有限（通常为 3-8 路）。当 worker 数超过 `YOUTUBE_NVENC_CONCURRENCY` 时，多余任务会回退到 `libx264` (CPU)。
+
+#### 编码质量预设参考
+
+**h264_nvenc (GPU)**
+
+| 用途 | preset | tune | rc | qp/crf | 说明 |
+|------|--------|------|----|--------|------|
+| 速度优先 | `p1` | `ll` | `constqp` | 23-28 | 最快，适合大批量转码 |
+| 平衡（默认） | `p1` | `ll` | `constqp` | 18 | 速度与画质折中 |
+| 高画质 | `p4` | `hq` | `constqp` | 15-18 | 较慢，画质更好 |
+| 最高画质 | `p7` | `hq` | `constqp` | 12-15 | 最慢，适合存档 |
+
+**libx264 (CPU)**
+
+libx264 使用 `-preset` 和 `-crf` 控制质量。常用预设：
+
+| 用途 | preset | crf | 说明 |
+|------|--------|-----|------|
+| 速度优先 | `veryfast` | 23-28 | 快速转码，体积较大 |
+| 平衡 | `medium` | 18-23 | 默认预设，速度与质量折中 |
+| 高画质 | `slow` | 15-18 | 较慢，压缩效率更高 |
+| 最高画质 | `veryslow` | 12-18 | 最慢，适合存档 |
+
+> CRF/QP 数值越低，画质越高，文件体积越大。通常 18 左右为"视觉无损"参考点。
 
 ### 其他
 
