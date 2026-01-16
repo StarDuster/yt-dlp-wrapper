@@ -43,13 +43,28 @@
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `YOUTUBE_INPUT_LIST_FORMAT` | 视频格式选择 | `bv[height<=1080]+ba/best[height<=1080]` |
+| `YOUTUBE_INPUT_LIST_FORMAT` | 视频格式选择 | `bv[height<=1080][vcodec^=av01]+ba/bv[height<=1080][vcodec^=vp9]+ba/bv[height<=1080]+ba/best[height<=1080]` |
 | `YOUTUBE_INPUT_LIST_FORMAT_SORT` | 格式排序规则 | `res,+tbr` |
 | `YOUTUBE_INPUT_LIST_RETRIES` | 重试次数 | `3` |
 | `YOUTUBE_INPUT_LIST_RETRY_BACKOFF_BASE` | 重试退避基数（秒） | `1.0` |
 | `YOUTUBE_INPUT_LIST_RETRY_BACKOFF_MAX` | 重试退避上限（秒） | `60.0` |
 | `YOUTUBE_INPUT_LIST_RETRY_BACKOFF_JITTER` | 重试退避抖动系数 | `0.1` |
 | `YOUTUBE_INPUT_LIST_SLEEP` | 每个视频下载完成后的等待时间（秒） | `0.0` |
+
+### 切片下载 / NVENC
+
+以下配置仅在 Video List 输入包含时间范围（`video_id,start,end`）时生效。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `YOUTUBE_NVENC_CONCURRENCY` | NVENC 并发上限（超出则自动回退到 CPU） | `8` |
+| `YOUTUBE_SEGMENT_MAX_HEIGHT` | 切片下载的视频最大高度 | `1080` |
+| `YOUTUBE_NVENC_PRESET` | NVENC 预设（p1..p7，p1 最快） | `p1` |
+| `YOUTUBE_NVENC_TUNE` | NVENC tune（`hq`/`ll`/`ull`/`lossless`） | `ll` |
+| `YOUTUBE_NVENC_RC` | NVENC 码率控制（`constqp`/`vbr`/`cbr` 等） | `constqp` |
+| `YOUTUBE_NVENC_QP` | constqp 质量参数（数值越低画质越高） | `18` |
+
+> 备注：当输入列表包含切片任务时，`YOUTUBE_SLEEP_*` 与 `YOUTUBE_INPUT_LIST_SLEEP` 会被强制为 0，以避免额外等待拖慢转码流水线。
 
 ### 其他
 
@@ -94,6 +109,7 @@ yt-dlp-wrapper download [OPTIONS]
 |------|------|
 | `--workers N` | 并发下载数（默认 `8`） |
 | `--limit N` | 限制下载数量 |
+| `--disable-nvenc` | 禁用 NVENC，强制使用 libx264（CPU） |
 
 ### account 命令
 

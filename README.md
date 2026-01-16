@@ -71,6 +71,7 @@ yt-dlp-wrapper download --video-list segments.txt --workers 4
 - 工具会自动识别列表中带时间戳的行
 - 切片任务启用 `--force-keyframes-at-cuts` 以保证精确到毫秒级的裁剪
 - 自动检测 NVIDIA GPU：若存在则使用 `h264_nvenc` 硬件加速；否则使用 `libx264` 并输出警告
+- 如需强制使用 CPU 编码，可在命令中添加 `--disable-nvenc`
 - 切片输出文件名自动添加时间戳后缀，如 `Title [video_id][10500-30000].mp4`
 
 ## 账号池
