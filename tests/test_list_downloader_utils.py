@@ -59,6 +59,36 @@ class TestListDownloaderUtils(unittest.TestCase):
             list_downloader.append_failed_id(failed, "dQw4w9WgXcQ", "oops", lock)
             self.assertEqual(list_downloader.load_failed_ids(failed), {"dQw4w9WgXcQ"})
 
+            # segment key should also be supported
+            seg_key = "dQw4w9WgXcQ:1500-2750"
+            list_downloader.append_archive_id(archive, seg_key, lock)
+            self.assertIn(seg_key, list_downloader.load_archive_ids(archive))
+
+            list_downloader.append_failed_id(failed, seg_key, "oops2", lock)
+            self.assertIn(seg_key, list_downloader.load_failed_ids(failed))
+
+    def test_parse_input_line(self) -> None:
+        vid = "dQw4w9WgXcQ"
+        self.assertIsNone(list_downloader.parse_input_line(""))
+        self.assertIsNone(list_downloader.parse_input_line("# comment"))
+        self.assertIsNone(list_downloader.parse_input_line("not-a-video-id,1,2"))
+
+        item = list_downloader.parse_input_line(vid)
+        assert item is not None
+        self.assertEqual(item["vid"], vid)
+        self.assertFalse(item["has_range"])
+        self.assertEqual(item["key"], vid)
+
+        item2 = list_downloader.parse_input_line(f"{vid},1.5,2.75")
+        assert item2 is not None
+        self.assertEqual(item2["vid"], vid)
+        self.assertTrue(item2["has_range"])
+        self.assertEqual(item2["start"], 1.5)
+        self.assertEqual(item2["end"], 2.75)
+        self.assertEqual(item2["start_ms"], 1500)
+        self.assertEqual(item2["end_ms"], 2750)
+        self.assertEqual(item2["key"], "dQw4w9WgXcQ:1500-2750")
+
     def test_classify_error(self) -> None:
         self.assertEqual(
             list_downloader.classify_error("ERROR: HTTP Error 429: Too Many Requests"),

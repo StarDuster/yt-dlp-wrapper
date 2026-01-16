@@ -169,6 +169,71 @@ def parse_youtube_id(value: str) -> Optional[str]:
     return None
 
 
+def _to_msec(seconds: float) -> int:
+    try:
+        return int(round(float(seconds) * 1000.0))
+    except Exception:
+        return 0
+
+
+def parse_input_line(raw: str) -> Optional[dict]:
+    """
+    Parse a single input line.
+
+    Supported formats:
+    - video_id_or_url
+    - video_id_or_url,start_time,end_time   (seconds; float supported)
+    """
+    s = (raw or "").strip()
+    if not s or s.startswith("#"):
+        return None
+
+    parts = [p.strip() for p in s.split(",")]
+    if len(parts) == 3:
+        vid_or_url, start_s, end_s = parts
+        vid = parse_youtube_id(vid_or_url)
+        if not vid:
+            return None
+        try:
+            start = float(start_s)
+            end = float(end_s)
+        except Exception:
+            return None
+        if start < 0 or end < 0 or end <= start:
+            return None
+
+        start_ms = _to_msec(start)
+        end_ms = _to_msec(end)
+        url = vid_or_url if vid_or_url.startswith("http") else f"https://www.youtube.com/watch?v={vid}"
+        return {
+            "raw": s,
+            "url": url,
+            "vid": vid,
+            "start": float(start),
+            "end": float(end),
+            "start_ms": int(start_ms),
+            "end_ms": int(end_ms),
+            "key": f"{vid}:{start_ms}-{end_ms}",
+            "has_range": True,
+        }
+
+    vid = parse_youtube_id(s)
+    if not vid:
+        return None
+    url = s if s.startswith("http") else f"https://www.youtube.com/watch?v={vid}"
+    return {
+        "raw": s,
+        "url": url,
+        "vid": vid,
+        "start": None,
+        "end": None,
+        "start_ms": None,
+        "end_ms": None,
+        "key": vid,
+        "has_range": False,
+    }
+
+
 def _select_invidious_instance(*, no_invidious: bool) -> Optional[str]:
     """
     Select a single Invidious instance. No rotation/fallback.
@@ -226,10 +291,17 @@ def load_archive_ids(path: Path) -> set[str]:
                     continue
                 parts = line.split()
                 if len(parts) >= 2 and parts[0] == "youtube":
-                    if YOUTUBE_ID_RE.match(parts[1]):
-                        ids.add(parts[1])
-                elif len(parts) == 1 and YOUTUBE_ID_RE.match(parts[0]):
-                    ids.add(parts[0])
+                    key = (parts[1] or "").strip()
+                    if key and (
+                        YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
+                    ):
+                        ids.add(key)
+                elif len(parts) == 1:
+                    key = (parts[0] or "").strip()
+                    if key and (
+                        YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
+                    ):
+                        ids.add(key)
     except Exception:
         return set()
     return ids
@@ -264,8 +336,13 @@ def load_failed_ids(path: Path) -> set[str]:
                 if not line:
                     continue
                 parts = line.split("\t")
-                if parts and YOUTUBE_ID_RE.match(parts[0]):
-                    ids.add(parts[0])
+                if not parts:
+                    continue
+                key = (parts[0] or "").strip()
+                if key and (
+                    YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
+                ):
+                    ids.add(key)
     except Exception:
         return set()
     return ids
