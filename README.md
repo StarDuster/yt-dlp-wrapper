@@ -1,12 +1,11 @@
 # yt-dlp-wrapper
 
-基于 `yt-dlp` 的封装工具，针对批量下载与长期归档场景进行优化。
+基于 `yt-dlp` 的封装工具，针对批量数据抓取设计。
 
 ## 特性
 
-- **本地缓存视频列表**：首次运行时将频道内所有视频 ID 展开并缓存至本地文件，后续运行无需重新请求 YouTube API 翻页
-- **账号池与自动轮换**：支持配置多个 YouTube 账号，当某账号触发请求限制 (HTTP 429) 时自动切换至其他账号并设置冷却时间
-- **基于 Playwright 的认证**：通过真实浏览器环境完成登录，自动导出 Cookies
+- **本地缓存视频列表**：首次运行时将频道内所有视频 ID 展开并缓存至本地文件，避免中断重新运行时需要反复翻页调用 API 和等待限流
+- **账号池自动轮换**：基于 Playwright 浏览器登录，支持配置多个 YouTube 账号，当某账号触发请求限制时自动切换账号
 - **视频切片下载**：支持指定时间范围下载视频片段，自动启用精确切片并转码（`--force-keyframes-at-cuts`），优先使用 NVIDIA GPU 加速
 
 ## 安装
@@ -35,7 +34,9 @@ uv run playwright install chromium
 yt-dlp-wrapper account login
 ```
 
-运行后会弹出浏览器窗口，完成登录并关闭窗口即可。
+运行后会弹出浏览器窗口，检测到 cookie 后窗口自动关闭。
+
+YouTube 对登陆账号的风控强度远低于访客，在不登陆账号的前提下几乎无法大规模爬取 YouTube 内容，反之如果 IP 不干净登陆账号也看不见视频内容，则 `yt-dlp` 也无法改变此状况。
 
 ### 2. 下载频道
 
@@ -75,7 +76,7 @@ yt-dlp-wrapper download --video-list segments.txt --workers 4
 
 **编码策略**：
 
-视频编码的本质是在**画质**与**体积**之间权衡。常见的控制方式有两类：控制码率（CBR/VBR）或控制质量（CRF/CQP）。CRF/CQP 是一个"质量锚点"，数值越低画质越好、体积越大，通常 18 左右被视为"视觉无损"的参考点。
+视频编码的本质是在**画质**与**体积**之间权衡。常见的控制方式有两类：控制码率（CBR/VBR）或控制质量（CRF/CQP）。CRF/CQP 数值越低画质越好、体积越大，通常 18 左右被视为"视觉无损"的参考点。
 
 在大规模归档场景中，**处理速度优先于压缩率**。硬件编码器（如 NVENC）的设计初衷是极速，但同码率下压缩效率不如 CPU。因此我们通常会使用较低的 CRF/QP 值（较高的码率），通过牺牲部分存储空间来换取极快的转码效率与高画质，避免转码成为下载队列的瓶颈。
 
@@ -116,6 +117,8 @@ yt-dlp-wrapper account login --account acc_2
 完整配置和 CLI 参数说明见 [CONFIGURATION.md](./CONFIGURATION.md)。
 
 ## 进阶：Invidious 与 PO Token
+
+Invidious 和 PO Token 主要用于提高访客状态的下载限额，在登陆账号的前提下的作用有限。
 
 ### 什么是 Invidious？
 
@@ -162,12 +165,6 @@ PO Token (Proof of Origin) 是 YouTube 引入的一种反爬虫验证机制，�
 
 详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"](https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors)。
 
-## FAQ
+## 免责声明
 
-**下载中断后如何恢复？**
-
-直接重新运行命令。频道模式会读取本地缓存的 `video_ids.txt`，跳过已下载视频继续处理。
-
-**Members-only 视频如何处理？**
-
-工具默认会跳过需要会员订阅的视频，并在日志中标记。
+本项目基于 CC BY-NC-SA 非商用许可。使用者需自行承担版权风险，所引起的一切版权纠纷与本项目无关。
