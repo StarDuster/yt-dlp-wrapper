@@ -190,6 +190,21 @@ def extract_http_status_from_text(text: str) -> Optional[int]:
     return None
 
 
+SABR_PATTERNS = [
+    r"YouTube is forcing SABR streaming",
+    r"formats have been skipped as they are missing a url",
+    r"SABR streaming for this client",
+]
+
+
+def _is_sabr_error(text: str) -> bool:
+    """Check if error is related to YouTube SABR streaming (not a rate limit)."""
+    for pattern in SABR_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
 def classify_list_error(error_msg: str) -> str:
     """
     List-downloader error classification using shared patterns.
@@ -201,6 +216,11 @@ def classify_list_error(error_msg: str) -> str:
       - "failed"
     """
     text = _normalize_error_text(error_msg)
+
+    # SABR streaming errors should NOT be classified as rate_limit
+    # They are YouTube protocol issues, not account-level throttling
+    if _is_sabr_error(text):
+        return "failed"
 
     for pattern in RATE_LIMIT_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
@@ -264,10 +284,17 @@ def diagnose_ffmpeg_error(error_msg: str) -> tuple[Optional[str], Optional[int],
       - "rate_limit": likely 429 / bot protection / too many requests
       - "access": likely cannot access media (403/401/404/410/private/age-restricted/etc.)
       - "retry": likely transient (5xx/connection resets/etc.)
+      - "sabr": YouTube SABR streaming protocol issue (not rate limit)
       - None: unknown
     """
     if not error_msg:
         return None, None, None
+
+    text = _normalize_error_text(error_msg)
+
+    # SABR errors are a distinct category - not rate limit
+    if _is_sabr_error(text):
+        return "sabr", None, "YouTube SABR streaming issue"
 
     base = classify_list_error(error_msg)
     http_status = extract_http_status_from_text(error_msg)

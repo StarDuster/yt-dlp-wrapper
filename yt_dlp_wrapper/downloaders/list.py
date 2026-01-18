@@ -763,11 +763,16 @@ def download_from_input_list(
     archive_file = output_dir / "download.archive.txt"
     unavailable_file = output_dir / "unavailable.txt"
     failed_file = output_dir / "failed.txt"
+    unavailable_this_run_file = output_dir / "unavailable.this_run.txt"
+    failed_this_run_file = output_dir / "failed.this_run.txt"
 
     archive_lock = threading.Lock()
     unavailable_lock = threading.Lock()
     failed_lock = threading.Lock()
     processed_lock = threading.Lock()
+    this_run_lock = threading.Lock()
+    unavailable_this_run: list[tuple[str, str]] = []
+    failed_this_run: list[tuple[str, str]] = []
 
     archived_ids = load_archive_ids(archive_file)
     unavailable_ids = load_failed_ids(unavailable_file)
@@ -1633,6 +1638,8 @@ def download_from_input_list(
                             if error_hint:
                                 _reason = f"{error_hint} | {_reason}" if _reason else error_hint
                             append_failed_id(unavailable_file, item_key, _reason, unavailable_lock)
+                            with this_run_lock:
+                                unavailable_this_run.append((item_key, _reason))
                         with stats_lock:
                             stats.unavailable += 1
                     else:
@@ -1641,6 +1648,8 @@ def download_from_input_list(
                             if error_hint:
                                 _reason = f"{error_hint} | {_reason}" if _reason else error_hint
                             append_failed_id(failed_file, item_key, _reason, failed_lock)
+                            with this_run_lock:
+                                failed_this_run.append((item_key, _reason))
                         with stats_lock:
                             stats.failed += 1
                     with ui_lock:
@@ -1688,6 +1697,22 @@ def download_from_input_list(
         console.print("\nInterrupted. Stopping...")
         return 130
 
+    # Write per-run failure snapshots to avoid confusion with the cumulative logs.
+    # The cumulative files (failed.txt/unavailable.txt) are append-only across runs,
+    # so an item may appear there even if it succeeds later and is in the archive.
+    try:
+        with unavailable_this_run_file.open("w", encoding="utf-8") as f:
+            for k, r in unavailable_this_run:
+                f.write(f"{k}\t{r}\n")
+    except Exception:
+        pass
+    try:
+        with failed_this_run_file.open("w", encoding="utf-8") as f:
+            for k, r in failed_this_run:
+                f.write(f"{k}\t{r}\n")
+    except Exception:
+        pass
+
     console.print(
         f"Done. ok={stats.ok} skipped={stats.skipped} unavailable={stats.unavailable} "
         f"failed={stats.failed} output_dir={output_dir}"
@@ -1695,4 +1720,6 @@ def download_from_input_list(
     console.print(f"Archive file: {archive_file}")
     console.print(f"Unavailable list: {unavailable_file}")
     console.print(f"Failed list: {failed_file}")
+    console.print(f"Unavailable this run: {unavailable_this_run_file}")
+    console.print(f"Failed this run: {failed_this_run_file}")
     return 0
