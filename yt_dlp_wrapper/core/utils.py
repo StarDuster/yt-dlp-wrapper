@@ -8,6 +8,7 @@ circular imports.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import random
@@ -41,39 +42,64 @@ def _has_nvidia_gpu() -> bool:
 
 def _get_physical_cpu_cores() -> int:
     """
-    Best-effort physical core count.
+    Best-effort physical CPU core count (prefer physical cores, not logical threads).
 
-    Keep it simple: on Linux, parse /proc/cpuinfo and count unique (physical id, core id) pairs.
-    Fall back to os.cpu_count() if unavailable.
+    On Linux, try sysfs topology first (and respect CPU affinity if available),
+    then fall back to parsing /proc/cpuinfo. If all methods fail, fall back to
+    os.cpu_count() (logical CPUs).
     """
+
     try:
-        if Path("/proc/cpuinfo").exists():
-            pairs: set[tuple[int, int]] = set()
-            physical_id: Optional[int] = None
-            core_id: Optional[int] = None
-            with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
-                for raw in f:
-                    line = (raw or "").strip()
-                    if not line:
-                        if core_id is not None:
-                            pairs.add((physical_id or 0, core_id))
-                        physical_id = None
-                        core_id = None
-                        continue
-                    if line.startswith("physical id"):
-                        try:
-                            physical_id = int(line.split(":", 1)[1].strip())
-                        except Exception:
-                            pass
-                    elif line.startswith("core id"):
-                        try:
-                            core_id = int(line.split(":", 1)[1].strip())
-                        except Exception:
-                            pass
-            if core_id is not None:
-                pairs.add((physical_id or 0, core_id))
-            if pairs:
-                return max(1, len(pairs))
+        try:
+            cpus = sorted(int(c) for c in os.sched_getaffinity(0))  # type: ignore[attr-defined]
+        except Exception:
+            n = int(os.cpu_count() or 0)
+            cpus = list(range(max(0, n)))
+
+        pairs: set[tuple[int, int]] = set()
+        for cpu in cpus:
+            core_id_path = Path(f"/sys/devices/system/cpu/cpu{cpu}/topology/core_id")
+            pkg_id_path = Path(f"/sys/devices/system/cpu/cpu{cpu}/topology/physical_package_id")
+            if not core_id_path.exists():
+                continue
+            try:
+                core_id = int(core_id_path.read_text(encoding="utf-8", errors="ignore").strip())
+            except Exception:
+                continue
+            pkg_id = 0
+            if pkg_id_path.exists():
+                with contextlib.suppress(Exception):
+                    pkg_id = int(pkg_id_path.read_text(encoding="utf-8", errors="ignore").strip())
+            pairs.add((pkg_id, core_id))
+
+        if pairs:
+            return max(1, len(pairs))
+    except Exception:
+        pass
+
+    try:
+        pairs: set[tuple[int, int]] = set()
+        physical_id: Optional[int] = None
+        core_id: Optional[int] = None
+        with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                line = (raw or "").strip()
+                if not line:
+                    if core_id is not None:
+                        pairs.add((physical_id or 0, core_id))
+                    physical_id = None
+                    core_id = None
+                    continue
+                if line.startswith("physical id"):
+                    with contextlib.suppress(Exception):
+                        physical_id = int(line.split(":", 1)[1].strip())
+                elif line.startswith("core id"):
+                    with contextlib.suppress(Exception):
+                        core_id = int(line.split(":", 1)[1].strip())
+        if core_id is not None:
+            pairs.add((physical_id or 0, core_id))
+        if pairs:
+            return max(1, len(pairs))
     except Exception:
         pass
 

@@ -14,19 +14,17 @@ from typing import Optional
 RATE_LIMIT_PATTERNS = [
     r"HTTP Error 429",
     r"Too Many Requests",
-    r"Sign in to confirm you'?re not a bot",
-    r"confirm you'?re not a bot",
+    r"Sign in to confirm you.?re not a bot",
+    r"confirm you.?re not a bot",
+    r"you are not a bot",
     r"This helps protect our community",
     r"rate.?limit",
-    r"Requested format is not available",
-    r"Unable to extract.*?player",
-    r"HTTP Error 403.*?Forbidden",
-    r"IncompleteRead",
-    r"Connection reset by peer",
-    r"Read timed out",
-    r"urlopen error",
-    r"Got error: The read operation timed out",
-    r"giving up after.*?retries",
+    # NOTE: The following patterns were previously here but are NOT reliable rate limit indicators:
+    # - "Requested format is not available" - usually a format/stream issue
+    # - "Unable to extract.*?player" - can be many causes, not just rate limit
+    # - "HTTP Error 403.*?Forbidden" - usually access/permission issue, not rate limit
+    # - Network errors (IncompleteRead, timeout, etc) - transient, not rate limit
+    # These have been moved to RETRY_PATTERNS.
 ]
 
 MEMBERS_ONLY_PATTERNS = [
@@ -51,6 +49,7 @@ UNAVAILABLE_PATTERNS = [
     r"Video unavailable",
     r"This video has been removed",
     r"This video is no longer available",
+    r"This video is not available",
     r"The uploader has not made this video available",
     r"This video contains content from.*?who has blocked",
     r"blocked it in your country",
@@ -65,6 +64,9 @@ UNAVAILABLE_PATTERNS = [
     r"uploader has closed their youtube account",
     r"account associated with this video has been terminated",
     r"removed for violating",
+    r"Playback on other websites has been disabled",
+    r"embedding.*?disabled",
+    r"embed.*?not allowed",
 ]
 
 RETRY_PATTERNS = [
@@ -75,6 +77,16 @@ RETRY_PATTERNS = [
     r"connection timed out",
     r"ssl",
     r"temporary",
+    # Patterns that may indicate retryable issues (not permanent failures)
+    r"Requested format is not available",
+    r"Unable to extract.*?player",
+    r"HTTP Error 403.*?Forbidden",
+    r"IncompleteRead",
+    r"Connection reset by peer",
+    r"Read timed out",
+    r"urlopen error",
+    r"Got error: The read operation timed out",
+    r"giving up after.*?retries",
 ]
 
 

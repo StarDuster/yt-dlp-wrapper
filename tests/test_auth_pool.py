@@ -11,7 +11,6 @@ from yt_dlp_wrapper.auth.pool import (
     discover_accounts,
     get_account_paths,
     load_accounts_from_config,
-    parse_ytdlp_speed_to_bps,
 )
 
 
@@ -147,13 +146,6 @@ class TestYouTubeAccountPool(unittest.TestCase):
         self.assertAlmostEqual(accounts[0].cooldown_until, 110.0, places=6)
         self.assertEqual(accounts[0].rate_limited, 1)
 
-    def test_parse_ytdlp_speed_to_bps(self) -> None:
-        self.assertEqual(parse_ytdlp_speed_to_bps(None), 0.0)
-        self.assertEqual(parse_ytdlp_speed_to_bps("..."), 0.0)
-        self.assertEqual(parse_ytdlp_speed_to_bps("1KiB/s"), 1024.0)
-        self.assertEqual(parse_ytdlp_speed_to_bps("1MiB/s"), 1024.0**2)
-        self.assertEqual(parse_ytdlp_speed_to_bps("1MB/s"), 1000.0**2)
-        self.assertEqual(parse_ytdlp_speed_to_bps("5K/s"), 5000.0)
 
 
 class TestAccountDiscovery(unittest.TestCase):

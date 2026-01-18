@@ -23,7 +23,6 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qs, urlparse
 
 from rich.console import Console
 from rich.filesize import decimal as fmt_bytes
@@ -47,185 +46,23 @@ except Exception:  # pragma: no cover
 from .. import config
 from ..auth.pool import YouTubeAccount, YouTubeAccountPool, load_accounts_from_config
 from ..core.diagnostics import classify_list_error, diagnose_ffmpeg_error
+from ..core.utils import (
+    _FFmpegProgressTail,
+    _backoff_sleep,
+    _format_eta,
+    _format_time,
+    _get_physical_cpu_cores,
+    _has_nvidia_gpu,
+    _to_msec,
+    append_archive_id,
+    append_failed_id,
+    load_archive_ids,
+    load_failed_ids,
+    parse_youtube_id,
+)
 
 
 console = Console()
-
-YOUTUBE_ID_RE = re.compile(r"^[0-9A-Za-z_-]{11}$")
-
-
-def _has_nvidia_gpu() -> bool:
-    """
-    Best-effort NVIDIA GPU detection.
-    We prefer checking nvidia-smi since it is the most common indicator in server environments.
-    """
-    try:
-        p = subprocess.run(
-            ["nvidia-smi"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=2,
-        )
-        return p.returncode == 0
-    except Exception:
-        return False
-
-
-def _get_physical_cpu_cores() -> int:
-    """
-    Best-effort physical CPU core count (prefer physical cores, not logical threads).
-
-    On Linux, try sysfs topology first (and respect CPU affinity if available),
-    then fall back to parsing /proc/cpuinfo. If all methods fail, fall back to
-    os.cpu_count() (logical CPUs).
-    """
-
-    try:
-        try:
-            cpus = sorted(int(c) for c in os.sched_getaffinity(0))  # type: ignore[attr-defined]
-        except Exception:
-            n = int(os.cpu_count() or 0)
-            cpus = list(range(max(0, n)))
-
-        pairs: set[tuple[int, int]] = set()
-        for cpu in cpus:
-            core_id_path = Path(f"/sys/devices/system/cpu/cpu{cpu}/topology/core_id")
-            pkg_id_path = Path(
-                f"/sys/devices/system/cpu/cpu{cpu}/topology/physical_package_id"
-            )
-            if not core_id_path.exists():
-                continue
-            try:
-                core_id = int(core_id_path.read_text(encoding="utf-8", errors="ignore").strip())
-            except Exception:
-                continue
-            pkg_id = 0
-            if pkg_id_path.exists():
-                with contextlib.suppress(Exception):
-                    pkg_id = int(pkg_id_path.read_text(encoding="utf-8", errors="ignore").strip())
-            pairs.add((pkg_id, core_id))
-
-        if pairs:
-            return max(1, len(pairs))
-    except Exception:
-        pass
-
-    try:
-        pairs: set[tuple[int, int]] = set()
-        physical_id: Optional[int] = None
-        core_id: Optional[int] = None
-        with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
-            for raw in f:
-                line = (raw or "").strip()
-                if not line:
-                    if core_id is not None:
-                        pairs.add((physical_id or 0, core_id))
-                    physical_id = None
-                    core_id = None
-                    continue
-                if line.startswith("physical id"):
-                    with contextlib.suppress(Exception):
-                        physical_id = int(line.split(":", 1)[1].strip())
-                elif line.startswith("core id"):
-                    with contextlib.suppress(Exception):
-                        core_id = int(line.split(":", 1)[1].strip())
-        if core_id is not None:
-            pairs.add((physical_id or 0, core_id))
-        if pairs:
-            return max(1, len(pairs))
-    except Exception:
-        pass
-
-    try:
-        return max(1, int(os.cpu_count() or 1))
-    except Exception:
-        return 1
-
-
-def _parse_ffmpeg_speed(value: str) -> Optional[float]:
-    s = (value or "").strip().lower()
-    if not s:
-        return None
-    if s.endswith("x"):
-        s = s[:-1].strip()
-    try:
-        v = float(s)
-    except Exception:
-        return None
-    # Keep 0.00x as 0.0 so UI can display it (instead of treating it as missing).
-    return v if v >= 0 else None
-
-
-class _FFmpegProgressTail:
-    """
-    Incrementally read ffmpeg -progress output from a file.
-
-    ffmpeg writes lines like:
-      out_time_ms=1234567
-      speed=1.23x
-      progress=continue
-    """
-
-    def __init__(self, path: Path):
-        self.path = path
-        self.pos = 0
-        self.out_time_s: float = 0.0
-        self.speed_factor: Optional[float] = None
-        # Keep the raw speed text when ffmpeg reports non-numeric values (e.g. N/A).
-        self.speed_text: Optional[str] = None
-        self.last_progress: Optional[str] = None
-
-    def poll(self) -> None:
-        try:
-            st = self.path.stat()
-        except Exception:
-            return
-        size = int(getattr(st, "st_size", 0) or 0)
-        if size <= 0:
-            return
-        if size < self.pos:
-            self.pos = 0
-        try:
-            with self.path.open("r", encoding="utf-8", errors="ignore") as f:
-                f.seek(self.pos)
-                chunk = f.read()
-                self.pos = f.tell()
-        except Exception:
-            return
-
-        for line in (chunk or "").splitlines():
-            if "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k = (k or "").strip()
-            v = (v or "").strip()
-            if not k:
-                continue
-            if k in {"out_time_us", "out_time_ms"}:
-                # Despite the name, ffmpeg often reports microseconds for out_time_ms too.
-                try:
-                    us = int(v)
-                    if us > 0:
-                        self.out_time_s = float(us) / 1_000_000.0
-                except Exception:
-                    pass
-            elif k == "speed":
-                vv = (v or "").strip()
-                if vv.lower() in {"n/a", "na"}:
-                    self.speed_factor = None
-                    self.speed_text = "N/A"
-                else:
-                    sf = _parse_ffmpeg_speed(vv)
-                    if sf is not None:
-                        self.speed_factor = sf
-                        self.speed_text = None
-                    else:
-                        # Preserve any other raw text as-is for display.
-                        self.speed_factor = None
-                        self.speed_text = vv or None
-            elif k == "progress":
-                self.last_progress = v
 
 
 class _YtdlpLogBuffer:
