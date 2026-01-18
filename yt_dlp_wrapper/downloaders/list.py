@@ -19,6 +19,7 @@ import threading
 import time
 import os
 import subprocess
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -229,6 +230,59 @@ class _FFmpegProgressTail:
                         self.speed_text = vv or None
             elif k == "progress":
                 self.last_progress = v
+
+
+class _YtdlpLogBuffer:
+    """A small ring buffer to keep recent yt-dlp log lines (per worker)."""
+
+    def __init__(self, max_lines: int = 200) -> None:
+        try:
+            n = int(max_lines)
+        except Exception:
+            n = 200
+        if n < 20:
+            n = 20
+        if n > 2000:
+            n = 2000
+        self._lines: deque[str] = deque(maxlen=n)
+
+    def clear(self) -> None:
+        self._lines.clear()
+
+    def append(self, msg: object) -> None:
+        s = str(msg or "").strip()
+        if not s:
+            return
+        self._lines.append(s)
+
+    def tail(self, max_chars: int = 6000) -> str:
+        s = "\n".join(self._lines)
+        if not s:
+            return ""
+        try:
+            cap = int(max_chars)
+        except Exception:
+            cap = 6000
+        if cap > 0 and len(s) > cap:
+            return s[-cap:]
+        return s
+
+
+class _YtdlpLogger:
+    """yt-dlp Python API logger hook."""
+
+    def __init__(self, buf: _YtdlpLogBuffer) -> None:
+        self.buf = buf
+
+    def debug(self, msg) -> None:  # noqa: ANN001
+        # Keep debug noise out; we mainly need warnings/errors to diagnose failures.
+        return
+
+    def warning(self, msg) -> None:  # noqa: ANN001
+        self.buf.append(msg)
+
+    def error(self, msg) -> None:  # noqa: ANN001
+        self.buf.append(msg)
 
 
 def _format_eta(seconds: Optional[float]) -> str:
@@ -967,7 +1021,14 @@ def download_from_input_list(
 
         return hook
 
-    def build_ydl(hook: callable, account: Optional[YouTubeAccount], segment: Optional[dict] = None, force_libx264: bool = False) -> yt_dlp.YoutubeDL:
+    def build_ydl(
+        hook: callable,
+        account: Optional[YouTubeAccount],
+        segment: Optional[dict] = None,
+        force_libx264: bool = False,
+        *,
+        logger_obj: Optional[object] = None,
+    ) -> yt_dlp.YoutubeDL:
         extractor_args: dict[str, dict[str, list[str]]] = {
             "youtubetab": {"approximate_date": ["true"]},
         }
@@ -1082,6 +1143,8 @@ def download_from_input_list(
             # Allow fetching remote EJS component when needed
             "remote_components": ["ejs:github"],
         }
+        if logger_obj is not None:
+            ydl_opts["logger"] = logger_obj
 
         if segment_mode:
             start = float(segment.get("start") or 0.0)
@@ -1170,7 +1233,9 @@ def download_from_input_list(
         account = accounts[account_idx] if account_idx >= 0 else None
         if account is not None:
             state["acct"] = account.name
-        ydl_base = build_ydl(hook, account)
+        logbuf = _YtdlpLogBuffer(max_lines=200)
+        ydl_logger = _YtdlpLogger(logbuf)
+        ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
         ffmpeg_progress_dir = output_dir / ".ffmpeg-progress"
         try:
             ffmpeg_progress_dir.mkdir(parents=True, exist_ok=True)
@@ -1190,6 +1255,9 @@ def download_from_input_list(
                     return
                 if stop_event.is_set():
                     return
+
+                # Reset per-item yt-dlp log buffer so DownloadError gets useful context.
+                logbuf.clear()
 
                 vid = str(item.get("vid") or "")
                 url = str(item.get("url") or "")
@@ -1246,7 +1314,7 @@ def download_from_input_list(
                             account_idx = next_idx
                             account = accounts[account_idx]
                             state["acct"] = account.name
-                            ydl_base = build_ydl(hook, account)
+                            ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
 
                 if not url and vid:
                     url = f"https://www.youtube.com/watch?v={vid}"
@@ -1296,6 +1364,7 @@ def download_from_input_list(
 
                 attempt = 0
                 ffmpeg_failures = 0
+                rate_limit_hits = 0
                 try:
                     ffmpeg_max_retries = int(getattr(config, "YOUTUBE_FFMPEG_MAX_RETRIES", 3) or 3)
                 except Exception:
@@ -1332,6 +1401,7 @@ def download_from_input_list(
                             account,
                             segment=item,
                             force_libx264=(segment_mode and not use_nvenc_attempt),
+                            logger_obj=ydl_logger,
                         )
                         if segment_mode
                         else ydl_base
@@ -1414,9 +1484,15 @@ def download_from_input_list(
                     except DownloadError as e:
                         ok = False
                         error_msg = str(e)
+                        ctx = logbuf.tail()
+                        if ctx and ctx not in error_msg:
+                            error_msg = f"{error_msg}\n\n--- ytdlp_log_tail ---\n{ctx}"
                     except Exception as e:
                         ok = False
                         error_msg = str(e)
+                        ctx = logbuf.tail()
+                        if ctx and ctx not in error_msg:
+                            error_msg = f"{error_msg}\n\n--- ytdlp_log_tail ---\n{ctx}"
                     finally:
                         if monitor_stop is not None:
                             monitor_stop.set()
@@ -1447,37 +1523,58 @@ def download_from_input_list(
                                 ffmpeg_exit_code = int(m.group(1))
 
                     if ffmpeg_exit_code is not None:
-                        ffmpeg_failures += 1
-                        reached_max = bool(ffmpeg_failures >= ffmpeg_max_retries)
                         _diag, _http, _hint = diagnose_ffmpeg_error(error_msg)
                         if _hint:
                             error_hint = _hint
                         hint_for_log = f", {_hint}" if _hint else ""
                         switch_for_log = ""
-                        do_switch = False
-                        next_idx = -1
-                        wait_s: Optional[float] = None
-                        old_name = ""
-                        new_name = ""
 
-                        # Switch account before retry (if pool is enabled). If we likely hit 429,
-                        # mark the current account as rate-limited so the pool can cool it down.
-                        if (not reached_max) and pool is not None and account_idx >= 0 and accounts:
-                            if _diag == "rate_limit":
+                        # If the underlying cause looks like rate limiting, do NOT consume the
+                        # ffmpeg retry budget. Instead, treat it like a "wait/switch and retry later" event.
+                        if _diag == "rate_limit":
+                            rate_limit_hits += 1
+
+                            if pool is not None and account_idx >= 0 and accounts:
+                                old_idx = int(account_idx)
+                                old_name = ""
+                                try:
+                                    old_name = str(accounts[old_idx].name) if 0 <= old_idx < len(accounts) else str(old_idx)
+                                except Exception:
+                                    old_name = str(old_idx)
+
                                 with contextlib.suppress(Exception):
-                                    pool.mark_rate_limited(account_idx)
-                            next_idx, wait_s = pool.pick_next(account_idx, exclude_current=True)
-                            if 0 <= next_idx < len(accounts) and next_idx != account_idx:
-                                do_switch = True
-                                try:
-                                    old_name = str(accounts[account_idx].name)
-                                except Exception:
-                                    old_name = str(account_idx)
-                                try:
-                                    new_name = str(accounts[next_idx].name)
-                                except Exception:
-                                    new_name = str(next_idx)
-                                switch_for_log = f", switch account {old_name} -> {new_name}"
+                                    pool.mark_rate_limited(old_idx)
+
+                                next_idx, wait_s = pool.pick_next(old_idx, exclude_current=True)
+                                if wait_s and wait_s > 0:
+                                    time.sleep(wait_s)
+                                if 0 <= next_idx < len(accounts) and next_idx != old_idx:
+                                    account_idx = next_idx
+                                    account = accounts[account_idx]
+                                    state["acct"] = account.name
+                                    ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
+                                    switches_used += 1
+                                    try:
+                                        new_name = str(accounts[account_idx].name) if 0 <= account_idx < len(accounts) else str(account_idx)
+                                    except Exception:
+                                        new_name = str(account_idx)
+                                    if old_name and new_name and old_name != new_name:
+                                        switch_for_log = f", switch account {old_name} -> {new_name}"
+
+                            with ui_lock:
+                                progress.console.print(
+                                    f"[yellow]Worker {worker_idx+1}: ffmpeg failed (code={ffmpeg_exit_code}{hint_for_log}), "
+                                    f"sleep {ffmpeg_retry_sleep:g}s then retry {item_key} "
+                                    f"(rate_limited={rate_limit_hits}){switch_for_log}[/yellow]"
+                                )
+
+                            if ffmpeg_retry_sleep:
+                                time.sleep(ffmpeg_retry_sleep)
+                            continue
+
+                        # Non-rate-limit ffmpeg failure: consume retry budget and potentially give up.
+                        ffmpeg_failures += 1
+                        reached_max = bool(ffmpeg_failures >= ffmpeg_max_retries)
 
                         with ui_lock:
                             if reached_max:
@@ -1489,7 +1586,7 @@ def download_from_input_list(
                                 progress.console.print(
                                     f"[yellow]Worker {worker_idx+1}: ffmpeg failed (code={ffmpeg_exit_code}{hint_for_log}), "
                                     f"sleep {ffmpeg_retry_sleep:g}s then retry {item_key} "
-                                    f"(retries={ffmpeg_failures}/{ffmpeg_max_retries}){switch_for_log}[/yellow]"
+                                    f"(retries={ffmpeg_failures}/{ffmpeg_max_retries})[/yellow]"
                                 )
 
                         if reached_max:
@@ -1500,14 +1597,6 @@ def download_from_input_list(
                             if ffmpeg_exit_code == 222 and _diag != "rate_limit":
                                 final_error_type = "unavailable"
                             break
-
-                        if do_switch and 0 <= next_idx < len(accounts) and next_idx != account_idx:
-                            if _diag == "rate_limit" and wait_s and wait_s > 0:
-                                time.sleep(wait_s)
-                            account_idx = next_idx
-                            account = accounts[account_idx]
-                            state["acct"] = account.name
-                            ydl_base = build_ydl(hook, account)
 
                         if ffmpeg_retry_sleep:
                             time.sleep(ffmpeg_retry_sleep)
@@ -1544,7 +1633,7 @@ def download_from_input_list(
                         account_idx = next_idx
                         account = accounts[account_idx]
                         state["acct"] = account.name
-                        ydl_base = build_ydl(hook, account)
+                        ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
                         switches_used += 1
                         continue
 
