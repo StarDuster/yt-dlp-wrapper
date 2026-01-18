@@ -165,6 +165,37 @@ PO Token (Proof of Origin) 是 YouTube 引入的一种反爬虫验证机制，�
 
 详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"]([https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#common-youtube-errors)。
 
+## 常见问题
+
+### SABR Streaming 错误
+
+**症状**：日志中出现 `ffmpeg exited with code 183`，伴随警告 `YouTube is forcing SABR streaming for this client. Some web_safari client https formats have been skipped as they are missing a url`。
+
+**原因**：YouTube 正在逐步推广 SABR (Server ABR) 流媒体协议，该协议不再提供直接的媒体 URL，而是通过服务端动态调整码率。某些 `player_client`（如 `web_safari`）在 SABR 强制模式下无法获取可下载的格式。
+
+**解决方案**：
+
+1. **升级 yt-dlp 到最新版**（推荐 nightly）：
+   ```bash
+   uv pip install -U "yt-dlp[default]" --pre
+   ```
+
+2. **排除受影响的 player_client**：
+   ```bash
+   # 方法一：环境变量
+   YTDLP_WRAPPER_PLAYER_CLIENT="android,ios,tv_embedded" yt-dlp-wrapper download ...
+
+   # 方法二：配置文件 (config.py)
+   YOUTUBE_PLAYER_CLIENT = "android,ios,tv_embedded"
+   ```
+
+3. **使用排除语法**：
+   ```bash
+   YTDLP_WRAPPER_PLAYER_CLIENT="default,-web_safari" yt-dlp-wrapper download ...
+   ```
+
+**注意**：SABR 错误不是账号限流，切换账号无法解决此问题。本工具已对 SABR 错误进行识别，不会触发无意义的账号切换。
+
 ## 免责声明
 
 本项目基于 CC BY-NC-SA 非商用许可。使用者需自行承担版权风险，所引起的一切版权纠纷与本项目无关。
