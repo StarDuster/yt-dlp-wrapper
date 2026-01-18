@@ -163,7 +163,7 @@ PO Token (Proof of Origin) 是 YouTube 引入的一种反爬虫验证机制，�
 1. **手动填入**：从浏览器中提取 Token，填入 `YOUTUBE_PO_TOKEN`
 2. **自动获取**：配置 `YOUTUBE_POT_PROVIDER` 使用第三方脚本动态生成
 
-详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"](https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors)。
+详见 [yt-dlp Wiki - "Sign in to confirm you're not a bot"]([https://github.com/yt-dlp/yt-dlp/wiki/Extractor-Interactions#im-getting-sign-in-to-confirm-youre-not-a-bot-errors](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#common-youtube-errors)。
 
 ## 免责声明
 
