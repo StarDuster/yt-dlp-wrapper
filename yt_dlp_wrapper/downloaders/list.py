@@ -117,76 +117,6 @@ class _YtdlpLogger:
         self.buf.append(msg)
 
 
-def _format_eta(seconds: Optional[float]) -> str:
-    if seconds is None:
-        return ""
-    try:
-        seconds = int(seconds)
-    except Exception:
-        return ""
-    if seconds < 0:
-        return ""
-    d, rem = divmod(seconds, 86400)
-    if d:
-        h, rem = divmod(rem, 3600)
-        m, s = divmod(rem, 60)
-        return f"{d:d}d{h:02d}:{m:02d}:{s:02d}"
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h:d}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
-
-
-def _format_time(seconds: Optional[float]) -> str:
-    """Format seconds with decimals for segment/transcode progress."""
-    if seconds is None:
-        return ""
-    try:
-        seconds_f = float(seconds)
-    except Exception:
-        return ""
-    if seconds_f < 0:
-        return ""
-    m, s = divmod(seconds_f, 60.0)
-    h, m = divmod(m, 60.0)
-    if h:
-        return f"{int(h):d}:{int(m):02d}:{s:05.2f}"
-    return f"{int(m):02d}:{s:05.2f}"
-
-
-def _backoff_sleep(attempt: int, base: float, cap: float, jitter: float) -> float:
-    """Exponential backoff seconds for yt-dlp retry_sleep_functions."""
-    try:
-        a = int(attempt)
-    except Exception:
-        a = 1
-    if a < 1:
-        a = 1
-
-    try:
-        base_f = float(base)
-        cap_f = float(cap)
-        jitter_f = float(jitter)
-    except Exception:
-        return 0.0
-
-    if base_f <= 0 or cap_f <= 0:
-        return 0.0
-
-    if jitter_f < 0:
-        jitter_f = 0.0
-    if jitter_f > 1:
-        jitter_f = 1.0
-
-    t = min(cap_f, base_f * (2 ** (a - 1)))
-    if jitter_f > 0:
-        t *= (1.0 - jitter_f) + (2.0 * jitter_f * random.random())
-    if t < 0:
-        return 0.0
-    return float(t)
-
-
 class CountOrBytesColumn(ProgressColumn):
     """Overall: N/M. Worker: bytes downloaded / total."""
 
@@ -329,49 +259,6 @@ class ETAColumn(ProgressColumn):
             return Text("")
         return Text(_format_eta(task.fields.get("eta")))
 
-
-def parse_youtube_id(value: str) -> Optional[str]:
-    s = (value or "").strip()
-    if not s:
-        return None
-    if YOUTUBE_ID_RE.match(s):
-        return s
-    try:
-        u = urlparse(s)
-    except Exception:
-        return None
-
-    host = (u.netloc or "").lower()
-    path = u.path or ""
-
-    if host in {"youtu.be", "www.youtu.be"}:
-        vid = path.lstrip("/").split("/")[0]
-        return vid if YOUTUBE_ID_RE.match(vid or "") else None
-
-    if "youtube.com" in host or host in {"m.youtube.com", "music.youtube.com"}:
-        qs = parse_qs(u.query or "")
-        v = (qs.get("v") or [None])[0]
-        if v and YOUTUBE_ID_RE.match(v):
-            return v
-        if path.startswith("/shorts/"):
-            parts = path.split("/")
-            if len(parts) >= 3 and parts[2] and YOUTUBE_ID_RE.match(parts[2]):
-                return parts[2]
-        if path.startswith("/embed/"):
-            parts = path.split("/")
-            if len(parts) >= 3 and parts[2] and YOUTUBE_ID_RE.match(parts[2]):
-                return parts[2]
-
-    return None
-
-
-def _to_msec(seconds: float) -> int:
-    try:
-        return int(round(float(seconds) * 1000.0))
-    except Exception:
-        return 0
-
-
 def parse_input_line(raw: str) -> Optional[dict]:
     """
     Parse a single input line.
@@ -473,76 +360,6 @@ def _merge_extractor_args(
             if not key:
                 continue
             extractor_args.setdefault(extractor, {}).setdefault(key, []).append(val)
-
-
-def load_archive_ids(path: Path) -> set[str]:
-    ids: set[str] = set()
-    if not path.exists():
-        return ids
-    try:
-        with path.open("r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = (line or "").strip()
-                if not line:
-                    continue
-                parts = line.split()
-                if len(parts) >= 2 and parts[0] == "youtube":
-                    key = (parts[1] or "").strip()
-                    if key and (
-                        YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
-                    ):
-                        ids.add(key)
-                elif len(parts) == 1:
-                    key = (parts[0] or "").strip()
-                    if key and (
-                        YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
-                    ):
-                        ids.add(key)
-    except Exception:
-        return set()
-    return ids
-
-
-def append_archive_id(path: Path, vid: str, lock: threading.Lock) -> None:
-    if not vid:
-        return
-    with lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(f"youtube {vid}\n")
-
-
-def append_failed_id(path: Path, vid: str, reason: str, lock: threading.Lock) -> None:
-    if not vid:
-        return
-    with lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(f"{vid}\t{reason}\n")
-
-
-def load_failed_ids(path: Path) -> set[str]:
-    ids: set[str] = set()
-    if not path.exists():
-        return ids
-    try:
-        with path.open("r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = (line or "").strip()
-                if not line:
-                    continue
-                parts = line.split("\t")
-                if not parts:
-                    continue
-                key = (parts[0] or "").strip()
-                if key and (
-                    YOUTUBE_ID_RE.match(key.split(":", 1)[0]) if ":" in key else YOUTUBE_ID_RE.match(key)
-                ):
-                    ids.add(key)
-    except Exception:
-        return set()
-    return ids
-
 
 def classify_error(error_msg: str) -> str:
     return classify_list_error(error_msg)
