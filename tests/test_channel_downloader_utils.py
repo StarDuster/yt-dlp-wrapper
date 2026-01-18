@@ -137,7 +137,6 @@ class TestChannelDownloaderUtils(unittest.TestCase):
             seen_cmds: list[list[str]] = []
 
             def _fake_run(cmd: list, *_args, **_kwargs) -> DownloadResult:
-                # Record commands instead of running yt-dlp.
                 seen_cmds.append(list(cmd))
                 return DownloadResult(return_code=0)
 

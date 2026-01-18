@@ -79,7 +79,6 @@ class TestFormatEta(unittest.TestCase):
         self.assertEqual(_format_eta(3661), "1:01:01")
 
     def test_days(self) -> None:
-        # 1 day + 1 hour + 1 minute + 1 second = 90061 seconds
         self.assertEqual(_format_eta(90061), "1d01:01:01")
 
 
@@ -103,23 +102,17 @@ class TestFormatTime(unittest.TestCase):
 
 class TestBackoffSleep(unittest.TestCase):
     def test_basic_backoff(self) -> None:
-        # attempt 1: base * 2^0 = base
         self.assertEqual(_backoff_sleep(1, 1.0, 60.0, 0.0), 1.0)
-        # attempt 2: base * 2^1 = 2
         self.assertEqual(_backoff_sleep(2, 1.0, 60.0, 0.0), 2.0)
-        # attempt 3: base * 2^2 = 4
         self.assertEqual(_backoff_sleep(3, 1.0, 60.0, 0.0), 4.0)
 
     def test_cap(self) -> None:
-        # attempt 10 would be 512, but cap is 60
         self.assertEqual(_backoff_sleep(10, 1.0, 60.0, 0.0), 60.0)
-        # cap at 3
         self.assertEqual(_backoff_sleep(3, 1.0, 3.0, 0.0), 3.0)
 
     def test_invalid_inputs(self) -> None:
         self.assertEqual(_backoff_sleep(1, 0.0, 60.0, 0.0), 0.0)
         self.assertEqual(_backoff_sleep(1, 1.0, 0.0, 0.0), 0.0)
-        # Invalid attempt defaults to 1
         self.assertEqual(_backoff_sleep("bad", 1.0, 60.0, 0.0), 1.0)
 
 
@@ -196,7 +189,6 @@ class TestDeriveChannelKey(unittest.TestCase):
         self.assertEqual(_derive_channel_key(""), "channel")
 
     def test_fallback_hash(self) -> None:
-        # For URLs that don't match known patterns, should return a hash-based key
         result = _derive_channel_key("https://example.com/something")
         self.assertTrue(result.startswith("something") or result.startswith("channel-"))
 
@@ -209,7 +201,6 @@ class TestSanitizeFilename(unittest.TestCase):
         self.assertEqual(_sanitize_filename('file<>:"/\\|?*.txt'), "file_________.txt")
 
     def test_control_chars(self) -> None:
-        # Control chars are replaced with spaces, then trailing spaces are stripped
         result = _sanitize_filename("file\nwith\rnewlines\t")
         self.assertEqual(result, "file with newlines")
 

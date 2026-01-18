@@ -382,7 +382,6 @@ def _sanitize_filename(filename: str) -> str:
     """
     filename = (filename or "").replace("\0", "")
 
-    # Replace control characters with spaces
     for char in ["\n", "\r", "\t"]:
         filename = filename.replace(char, " ")
 
@@ -390,7 +389,6 @@ def _sanitize_filename(filename: str) -> str:
     for char in invalid_chars:
         filename = filename.replace(char, "_")
 
-    # Collapse multiple spaces
     while "  " in filename:
         filename = filename.replace("  ", " ")
 
@@ -398,4 +396,3 @@ def _sanitize_filename(filename: str) -> str:
         filename = filename[:200]
 
     return filename.strip()
-

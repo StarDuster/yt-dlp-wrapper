@@ -15,7 +15,6 @@ class TestYtDlpOutputParser(unittest.TestCase):
     def test_progress_line(self) -> None:
         line = "[download]  50.0% of 100.00MiB at 1.00MiB/s ETA 00:50"
         self.parser.handle_line(self.result, line)
-        # Should not raise, progress callback not set so just prints
 
     def test_destination_line(self) -> None:
         line = "[download] Destination: /path/to/file.mp4"
@@ -40,7 +39,6 @@ class TestYtDlpOutputParser(unittest.TestCase):
     def test_video_id_extraction(self) -> None:
         line = "[youtube] dQw4w9WgXcQ: Downloading webpage"
         self.parser.handle_line(self.result, line)
-        # Parser should track current video ID internally
 
     def test_item_progress(self) -> None:
         line = "Downloading video 5 of 100"
@@ -52,7 +50,7 @@ class TestYtDlpOutputParser(unittest.TestCase):
         line = "ERROR: Sign in to confirm you're not a bot"
         abort = self.parser.handle_line(self.result, line)
         self.assertEqual(self.result.rate_limited_count, 1)
-        self.assertIsNotNone(abort)  # Should signal abort
+        self.assertIsNotNone(abort)
 
     def test_members_only_error(self) -> None:
         line = "ERROR: Join this channel to get access to members-only content"
@@ -70,10 +68,8 @@ class TestYtDlpOutputParser(unittest.TestCase):
         self.assertEqual(self.result.other_error_count, 1)
 
     def test_finalize_counts_current_video(self) -> None:
-        # Simulate a video starting
         line = "[youtube] dQw4w9WgXcQ: Downloading webpage"
         self.parser.handle_line(self.result, line)
-        # Finalize should count it as success
         self.parser.finalize(self.result)
         self.assertEqual(self.result.success_count, 1)
 
@@ -99,11 +95,9 @@ class TestYtDlpOutputParser(unittest.TestCase):
         )
         result = DownloadResult()
 
-        # Destination line should trigger message callback
         parser.handle_line(result, "[download] Destination: /path/to/file.mp4")
         message_cb.assert_called()
 
-        # Progress line should trigger progress callback
         parser.handle_line(result, "[download]  50.0% of 100.00MiB at 1.00MiB/s ETA 00:50")
         progress_cb.assert_called()
 

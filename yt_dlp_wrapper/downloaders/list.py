@@ -81,10 +81,8 @@ def _get_physical_cpu_cores() -> int:
     os.cpu_count() (logical CPUs).
     """
 
-    # Linux sysfs topology: count unique (package, core_id) pairs.
     try:
         try:
-            # Respect cgroup/cpuset affinity when possible.
             cpus = sorted(int(c) for c in os.sched_getaffinity(0))  # type: ignore[attr-defined]
         except Exception:
             n = int(os.cpu_count() or 0)
@@ -113,7 +111,6 @@ def _get_physical_cpu_cores() -> int:
     except Exception:
         pass
 
-    # /proc/cpuinfo fallback: count unique (physical id, core id).
     try:
         pairs: set[tuple[int, int]] = set()
         physical_id: Optional[int] = None
@@ -140,7 +137,6 @@ def _get_physical_cpu_cores() -> int:
     except Exception:
         pass
 
-    # Last resort: logical CPU count.
     try:
         return max(1, int(os.cpu_count() or 1))
     except Exception:
@@ -275,7 +271,6 @@ class _YtdlpLogger:
         self.buf = buf
 
     def debug(self, msg) -> None:  # noqa: ANN001
-        # Keep debug noise out; we mainly need warnings/errors to diagnose failures.
         return
 
     def warning(self, msg) -> None:  # noqa: ANN001
@@ -390,7 +385,6 @@ class SpeedColumn(ProgressColumn):
     ):
         super().__init__()
         self.worker_speeds = worker_speeds if worker_speeds is not None else {}
-        # For segment tasks: each worker contributes a fractional items/sec based on ffmpeg speed factor.
         self.worker_item_rates = worker_item_rates if worker_item_rates is not None else {}
         self._last_count_completed: Optional[float] = None
         self._last_count_ts: Optional[float] = None
@@ -403,13 +397,10 @@ class SpeedColumn(ProgressColumn):
             if total_speed > 0:
                 return Text(f"{fmt_bytes(int(total_speed))}/s")
 
-            # For segment tasks, show a continuous throughput estimate even before any item completes:
-            # sum(speed_factor / segment_duration) across workers.
             total_item_rate = sum(self.worker_item_rates.values())
             if total_item_rate > 0:
                 return Text(f"{total_item_rate:.2f} it/s")
 
-            # Fallback to item/s when byte speeds are not available (e.g. ffmpeg segment transcoding)
             now = time.time()
             completed = float(task.completed or 0.0)
             if self._last_count_ts is None:
@@ -421,9 +412,6 @@ class SpeedColumn(ProgressColumn):
             last_completed = float(self._last_count_completed or 0.0)
             dc = completed - last_completed
 
-            # Only update the instantaneous rate when progress advances.
-            # Otherwise we'd mostly show 0 it/s (because UI refresh is frequent),
-            # and only "flash" a value at the moment an item completes.
             if dc > 0:
                 dt = now - last_ts
                 if dt > 0:
@@ -431,7 +419,6 @@ class SpeedColumn(ProgressColumn):
                 self._last_count_ts = now
                 self._last_count_completed = completed
             elif dc < 0:
-                # Defensive: handle unexpected resets by reinitializing.
                 self._last_count_ts = now
                 self._last_count_completed = completed
                 self._last_count_rate = 0.0
@@ -478,7 +465,6 @@ class ETAColumn(ProgressColumn):
             if remaining <= 0:
                 return Text(_format_eta(0))
 
-            # Stable ETA based on average it/s since start of this run.
             start_ts = task.fields.get("start_ts")
             start_completed = task.fields.get("start_completed")
             try:
@@ -752,18 +738,13 @@ def download_from_input_list(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Preload yt-dlp plugins in the main thread to avoid multi-threaded import races.
-    # Without this, concurrent YoutubeDL() creation in multiple workers may trigger
-    # plugin loading simultaneously and cause spurious ImportError like
-    # "cannot import name ... from yt_dlp_plugins...".
     try:
         from yt_dlp.plugins import load_all_plugins
 
         load_all_plugins()
     except Exception:
-        # Plugins are optional; never block downloads due to plugin import failures.
         pass
 
-    # Accounts (multi-account dir first; fallback to legacy config cookie)
     accounts, pool = load_accounts_from_config(accounts_dir=accounts_dir)
     if accounts:
         console.print(
@@ -771,7 +752,6 @@ def download_from_input_list(
             f"(auto-switch={'yes' if pool else 'no'})"
         )
 
-    # Invidious (single instance)
     invidious_instance = _select_invidious_instance(no_invidious=no_invidious)
     if invidious_instance:
         console.print(
@@ -793,7 +773,6 @@ def download_from_input_list(
     unavailable_ids = load_failed_ids(unavailable_file)
     processed_ids: set[str] = set(archived_ids) | set(unavailable_ids)
 
-    # Count tasks
     total = 0
     already_done = 0
     has_range_tasks = False
@@ -851,7 +830,6 @@ def download_from_input_list(
                 )
             else:
                 console.print(f"NVENC concurrency limit: {nvenc_concurrency}")
-            # Print effective NVENC params for observability
             try:
                 seg_max_h = int(getattr(config, "YOUTUBE_SEGMENT_MAX_HEIGHT", 1080) or 1080)
             except Exception:
@@ -877,7 +855,6 @@ def download_from_input_list(
                 )
             else:
                 console.print("[red][bold]No NVIDIA GPU detected. Using libx264 transcoding (may be slow).[/bold][/red]")
-            # If we are going to run CPU x264 in parallel, warn about potential high CPU load.
             try:
                 cpu_cores = int(_get_physical_cpu_cores() or 1)
             except Exception:
@@ -893,9 +870,7 @@ def download_from_input_list(
                     "Consider using fewer --workers.[/bold][/red]"
                 )
 
-    # Worker speed tracking (bytes/sec)
     worker_speeds: dict[int, float] = {}
-    # Worker fractional item rates for segment tasks (items/sec)
     worker_item_rates: dict[int, float] = {}
     ui_lock = threading.Lock()
 
@@ -976,7 +951,6 @@ def download_from_input_list(
                     speed = d.get("speed")
                     eta = d.get("eta")
                     worker_speeds[worker_idx] = float(speed) if speed else 0.0
-                    # Clear segment-rate contribution during normal download updates.
                     worker_item_rates[worker_idx] = 0.0
 
                     acct = state.get("acct") or ""
@@ -1038,7 +1012,6 @@ def download_from_input_list(
             if isinstance(player_client_raw, (list, tuple)):
                 player_clients = [str(x).strip() for x in player_client_raw if str(x).strip()]
             else:
-                # Support comma-separated values like: "tv,-web_safari"
                 player_clients = [s.strip() for s in str(player_client_raw).split(",") if s.strip()]
             if player_clients:
                 youtube_args["player_client"] = player_clients
@@ -1058,8 +1031,6 @@ def download_from_input_list(
         sleep_interval = float(getattr(config, "YOUTUBE_SLEEP_INTERVAL", 0.0) or 0.0)
         max_sleep_interval = float(getattr(config, "YOUTUBE_MAX_SLEEP_INTERVAL", 0.0) or 0.0)
 
-        # If the input list contains segment (slice) tasks, disable yt-dlp sleep settings.
-        # Segment downloads are naturally throttled by ffmpeg/NVENC; extra sleeps slow the pipeline down.
         if has_range_tasks:
             sleep_interval_requests = 0.0
             sleep_interval = 0.0
@@ -1072,7 +1043,6 @@ def download_from_input_list(
             "bv[height<=1080][vcodec^=av01]+ba/bv[height<=1080][vcodec^=vp9]+ba/bv[height<=1080]+ba/best[height<=1080]",
         )
         if segment_mode:
-            # For segment downloads we prefer MP4 so that later we can safely encode with h264_nvenc/libx264
             try:
                 seg_max_h = int(getattr(config, "YOUTUBE_SEGMENT_MAX_HEIGHT", 1080) or 1080)
             except Exception:
@@ -1090,8 +1060,6 @@ def download_from_input_list(
         if segment_mode:
             start_ms = int(segment.get("start_ms") or 0)
             end_ms = int(segment.get("end_ms") or 0)
-            # Ensure unique filenames per segment
-            # Also force mp4 extension to avoid container/codec mismatch surprises in segment mode
             outtmpl = str(output_dir / f"%(title).200B [%(id)s] [{start_ms}-{end_ms}].mp4")
 
         ydl_opts: dict = {
@@ -1138,9 +1106,7 @@ def download_from_input_list(
             "ignoreerrors": False,
             "simulate": False,
             "extractor_args": extractor_args,
-            # Use Deno runtime by default (better YouTube support)
             "js_runtimes": {"deno": {}},
-            # Allow fetching remote EJS component when needed
             "remote_components": ["ejs:github"],
         }
         if logger_obj is not None:
@@ -1169,7 +1135,6 @@ def download_from_input_list(
                     "-c:v",
                     "h264_nvenc",
                 ]
-                # Speed/quality tuning from config
                 preset = getattr(config, "YOUTUBE_NVENC_PRESET", None)
                 if preset:
                     ydl_opts["external_downloader_args"]["ffmpeg_o"] += ["-preset", str(preset)]
@@ -1211,10 +1176,8 @@ def download_from_input_list(
                 ]
 
         if sleep_interval_requests and sleep_interval_requests > 0:
-            # yt-dlp option: --sleep-requests (seconds between requests during extraction)
             ydl_opts["sleep_interval_requests"] = sleep_interval_requests
         if sleep_interval and sleep_interval > 0:
-            # yt-dlp option: --sleep-interval/--min-sleep-interval (seconds before each download)
             ydl_opts["sleep_interval"] = sleep_interval
             if max_sleep_interval and max_sleep_interval > 0:
                 ydl_opts["max_sleep_interval"] = max_sleep_interval
@@ -1262,10 +1225,8 @@ def download_from_input_list(
                 vid = str(item.get("vid") or "")
                 url = str(item.get("url") or "")
                 item_key = str(item.get("key") or vid)
-                # For segment tasks show the full key (id:start-end) in the UI
                 state["vid"] = item_key
 
-                # UI: preparing
                 with ui_lock:
                     worker_speeds[worker_idx] = 0.0
                     worker_item_rates[worker_idx] = 0.0
@@ -1287,7 +1248,6 @@ def download_from_input_list(
                         visible=True,
                     )
 
-                # skip processed
                 if item_key:
                     with processed_lock:
                         already = item_key in processed_ids
@@ -1298,23 +1258,22 @@ def download_from_input_list(
                             progress.advance(overall_task, 1)
                         continue
 
-                # If current account is cooling down, switch to an available one
-                if pool is not None and account_idx >= 0:
-                    now = time.time()
-                    cooled_down = False
-                    try:
-                        cooled_down = accounts[account_idx].cooldown_until > now
-                    except Exception:
-                        cooled_down = False
-                    if cooled_down:
-                        next_idx, wait_s = pool.pick_next(account_idx, exclude_current=True)
+                if pool is not None and accounts:
+                    while True:
+                        next_idx, wait_s = pool.pick_least_used()
                         if wait_s and wait_s > 0:
                             time.sleep(wait_s)
-                        if 0 <= next_idx < len(accounts) and next_idx != account_idx:
+                            continue
+                        break
+                    if 0 <= next_idx < len(accounts):
+                        if next_idx != account_idx or account is None:
                             account_idx = next_idx
                             account = accounts[account_idx]
-                            state["acct"] = account.name
                             ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
+                        try:
+                            state["acct"] = str(account.name) if account is not None else ""
+                        except Exception:
+                            state["acct"] = ""
 
                 if not url and vid:
                     url = f"https://www.youtube.com/watch?v={vid}"
@@ -1333,7 +1292,6 @@ def download_from_input_list(
 
                 segment_mode = bool(item.get("has_range"))
                 if segment_mode:
-                    # Provide a per-worker ffmpeg progress file for UI updates
                     item["ffmpeg_progress_path"] = str(ffmpeg_progress_file)
 
                 nvenc_enabled = bool(segment_mode and has_nvidia_gpu and nvenc_sem is not None)
@@ -1377,7 +1335,6 @@ def download_from_input_list(
                     ffmpeg_retry_sleep = 3.0
                 if ffmpeg_retry_sleep < 0:
                     ffmpeg_retry_sleep = 0.0
-                # NOTE: attempt counter is maintained across retries for the same item_key.
                 while True:
                     attempt += 1
                     nvenc_acquired = False
@@ -1394,7 +1351,6 @@ def download_from_input_list(
                             nvenc_acquired = True
                             use_nvenc_attempt = True
 
-                    # Build a per-attempt YoutubeDL so we can switch encoder (NVENC vs libx264).
                     ydl_for_item = (
                         build_ydl(
                             hook,
@@ -1433,7 +1389,6 @@ def download_from_input_list(
                     monitor_started_at = time.time()
                     if segment_mode and segment_duration and segment_duration > 0:
                         try:
-                            # truncate old progress for this attempt
                             ffmpeg_progress_file.write_text("", encoding="utf-8")
                         except Exception:
                             pass
@@ -1444,7 +1399,6 @@ def download_from_input_list(
                             while not monitor_stop.is_set():
                                 tail.poll()
                                 completed_s = min(float(segment_duration), max(0.0, float(tail.out_time_s or 0.0)))
-                                # Fallback: if ffmpeg hasn't written progress yet, show elapsed seconds
                                 if completed_s <= 0.0:
                                     completed_s = min(float(segment_duration), max(0.0, time.time() - monitor_started_at))
                                 sf = tail.speed_factor
@@ -1452,8 +1406,6 @@ def download_from_input_list(
                                 eta = None
                                 if sf is not None and sf > 0 and segment_duration:
                                     eta = max(0.0, (float(segment_duration) - completed_s) / float(sf))
-                                # Continuous "items/sec" estimate for overall progress:
-                                # sum(speed_factor / segment_duration) across workers.
                                 item_rate = 0.0
                                 try:
                                     if segment_duration and float(segment_duration) > 0:
@@ -1499,7 +1451,6 @@ def download_from_input_list(
                         if monitor_thread is not None:
                             with contextlib.suppress(Exception):
                                 monitor_thread.join(timeout=1.0)
-                        # Clear segment-rate contribution once this attempt ends.
                         with ui_lock:
                             worker_item_rates[worker_idx] = 0.0
                         if nvenc_acquired and nvenc_sem is not None:
@@ -1545,9 +1496,12 @@ def download_from_input_list(
                                 with contextlib.suppress(Exception):
                                     pool.mark_rate_limited(old_idx)
 
-                                next_idx, wait_s = pool.pick_next(old_idx, exclude_current=True)
-                                if wait_s and wait_s > 0:
-                                    time.sleep(wait_s)
+                                while True:
+                                    next_idx, wait_s = pool.pick_least_used(exclude_idx=old_idx)
+                                    if wait_s and wait_s > 0:
+                                        time.sleep(wait_s)
+                                        continue
+                                    break
                                 if 0 <= next_idx < len(accounts) and next_idx != old_idx:
                                     account_idx = next_idx
                                     account = accounts[account_idx]
@@ -1602,7 +1556,6 @@ def download_from_input_list(
                             time.sleep(ffmpeg_retry_sleep)
                         continue
 
-                    # Rate limit: switch account if possible
                     if (
                         final_error_type == "rate_limit"
                         and pool is not None
@@ -1617,13 +1570,16 @@ def download_from_input_list(
                             _old_name = None
 
                         pool.mark_rate_limited(account_idx)
-                        next_idx, wait_s = pool.pick_next(account_idx, exclude_current=True)
+                        while True:
+                            next_idx, wait_s = pool.pick_least_used(exclude_idx=account_idx)
+                            if wait_s and wait_s > 0:
+                                time.sleep(wait_s)
+                                continue
+                            break
                         try:
                             _new_name = str(accounts[next_idx].name) if 0 <= next_idx < len(accounts) else None
                         except Exception:
                             _new_name = None
-                        if wait_s and wait_s > 0:
-                            time.sleep(wait_s)
                         if next_idx < 0 or next_idx >= len(accounts):
                             break
                         with ui_lock:

@@ -51,7 +51,6 @@ def _get_player_clients_from_env_or_config() -> list[str]:
     if isinstance(raw, (list, tuple)):
         return [str(x).strip() for x in raw if str(x).strip()]
 
-    # Support comma-separated values like: "tv,-web_safari"
     return [s.strip() for s in str(raw).split(",") if s.strip()]
 
 
@@ -145,7 +144,6 @@ def build_extractor_args_cli(*, no_invidious: bool) -> list[str]:
     if youtube_parts:
         args.append("youtube:" + ";".join(youtube_parts))
 
-    # Preserve any extra args as raw strings (they may include non key=value syntax).
     args.extend(_coerce_str_list(getattr(config, "YOUTUBE_EXTRACTOR_ARGS", None)))
     return args
 
@@ -175,9 +173,7 @@ class YtDlpContext:
         Apply common yt_dlp.YoutubeDL options shared by our tools.
         """
         opts["extractor_args"] = self.extractor_args_dict
-        # Prefer Deno runtime by default (better YouTube support).
         opts.setdefault("js_runtimes", {"deno": {}})
-        # Allow fetching remote EJS component when needed.
         opts.setdefault("remote_components", ["ejs:github"])
 
     def extend_cli_cmd(self, cmd: list[str]) -> None:
@@ -186,4 +182,3 @@ class YtDlpContext:
         """
         for arg in self.extractor_args_cli:
             cmd.extend(["--extractor-args", str(arg)])
-

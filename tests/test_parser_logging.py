@@ -11,7 +11,6 @@ class TestYtDlpOutputParserLogging(unittest.TestCase):
         def log_cb(msg: str, level: str) -> None:
             logs.append((level, msg))
 
-        # Important: simulate the common "progress_callback provided, message_callback missing" case.
         parser = YtDlpOutputParser(
             channel_name="chan",
             progress_callback=lambda *_: None,
@@ -45,4 +44,3 @@ class TestYtDlpOutputParserLogging(unittest.TestCase):
         self.assertIsNone(abort)
         self.assertEqual(result.other_error_count, 1)
         self.assertTrue(any(level == "error" for level, _ in logs))
-

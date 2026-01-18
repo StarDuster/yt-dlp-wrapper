@@ -45,12 +45,10 @@ class TestListDownloaderUtils(unittest.TestCase):
             mock_time.return_value = 0.0
             self.assertEqual(str(col.render(t)), "0 it/s")
 
-            # First completion after 20s -> 1/20 = 0.05 it/s
             mock_time.return_value = 20.0
             t.completed = 1.0
             self.assertEqual(str(col.render(t)), "0.05 it/s")
 
-            # No further completions -> keep last rate (should not fall back to 0)
             mock_time.return_value = 25.0
             t.completed = 1.0
             self.assertEqual(str(col.render(t)), "0.05 it/s")
@@ -96,7 +94,6 @@ class TestListDownloaderUtils(unittest.TestCase):
             list_downloader.append_failed_id(failed, "dQw4w9WgXcQ", "oops", lock)
             self.assertEqual(list_downloader.load_failed_ids(failed), {"dQw4w9WgXcQ"})
 
-            # segment key should also be supported
             seg_key = "dQw4w9WgXcQ:1500-2750"
             list_downloader.append_archive_id(archive, seg_key, lock)
             self.assertIn(seg_key, list_downloader.load_archive_ids(archive))
@@ -141,7 +138,6 @@ class TestListDownloaderUtils(unittest.TestCase):
                 return 0
 
         def _fake_sleep(s: float) -> None:
-            # Avoid slowing down tests; record durations for assertions.
             try:
                 sleep_calls.append(float(s))
             except Exception:
@@ -172,29 +168,22 @@ class TestListDownloaderUtils(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        # base download + segment download should both run
         self.assertEqual(len(downloaded_urls), 2)
 
-        # This list contains slice tasks, so all yt-dlp sleep settings must be disabled
-        # even if config has non-zero defaults.
         for opts in created_opts:
             self.assertNotIn("sleep_interval_requests", opts)
             self.assertNotIn("sleep_interval", opts)
             self.assertNotIn("max_sleep_interval", opts)
 
-        # Also should not sleep between items via YOUTUBE_INPUT_LIST_SLEEP=7.0
         self.assertNotIn(7.0, sleep_calls)
 
-        # Find segment opts (it should include download_ranges and force_keyframes_at_cuts)
         seg_opts = next((o for o in created_opts if "download_ranges" in o), None)
         self.assertIsNotNone(seg_opts)
         assert seg_opts is not None
         self.assertTrue(seg_opts.get("force_keyframes_at_cuts"))
 
-        # outtmpl includes ms range
         self.assertIn("[1500-2750]", str(seg_opts.get("outtmpl")))
 
-        # CPU fallback uses libx264
         eda = seg_opts.get("external_downloader_args") or {}
         ffmpeg_o = eda.get("ffmpeg_o") or []
         self.assertIn("libx264", ffmpeg_o)
@@ -239,8 +228,6 @@ class TestListDownloaderUtils(unittest.TestCase):
             input_list = tmp_dir / "input.txt"
             input_list.write_text(f"{vid}\n", encoding="utf-8")
 
-            # Create a minimal accounts dir with one account cookies file:
-            # <accounts_dir>/<name>/youtube_cookies.txt
             accounts_dir = tmp_dir / "accounts"
             cookies_file = accounts_dir / "acc1" / "youtube_cookies.txt"
             cookies_file.parent.mkdir(parents=True, exist_ok=True)
@@ -262,7 +249,6 @@ class TestListDownloaderUtils(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertTrue(created_opts, "Expected at least one YoutubeDL instance to be created")
-        # All created opts should carry cookiefile (base YDL, and any per-attempt YDLs).
         for opts in created_opts:
             with self.subTest(opts_keys=sorted(list(opts.keys()))):
                 self.assertEqual(opts.get("cookiefile"), str(cookies_file))

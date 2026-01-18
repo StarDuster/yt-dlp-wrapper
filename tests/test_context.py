@@ -162,7 +162,6 @@ class TestBuildExtractorArgsCli(unittest.TestCase):
         mock_config.YOUTUBE_EXTRACTOR_ARGS = None
 
         result = build_extractor_args_cli(no_invidious=True)
-        # Should contain youtube:po_token=my_token;pot_provider=my_provider
         youtube_arg = [a for a in result if a.startswith("youtube:")]
         self.assertTrue(len(youtube_arg) > 0)
         self.assertIn("po_token=my_token", youtube_arg[0])

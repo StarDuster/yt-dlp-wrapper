@@ -11,11 +11,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-# =============================================================================
-# 1. Error Patterns (Constants)
-# =============================================================================
-
-# Rate limiting / anti-bot patterns (should trigger retry later)
 RATE_LIMIT_PATTERNS = [
     r"HTTP Error 429",
     r"Too Many Requests",
@@ -34,7 +29,6 @@ RATE_LIMIT_PATTERNS = [
     r"giving up after.*?retries",
 ]
 
-# Members-only / Premium patterns (expected, not retryable)
 MEMBERS_ONLY_PATTERNS = [
     r"Join this channel to get access",
     r"members.?only",
@@ -51,7 +45,6 @@ MEMBERS_ONLY_PATTERNS = [
     r"purchase.*?required",
 ]
 
-# Private / unavailable patterns (expected, not retryable)
 UNAVAILABLE_PATTERNS = [
     r"This video is private",
     r"Private video",
@@ -74,7 +67,6 @@ UNAVAILABLE_PATTERNS = [
     r"removed for violating",
 ]
 
-# Transient / Retryable patterns
 RETRY_PATTERNS = [
     r"HTTP Error 5\d{2}",
     r"Internal Server Error",
@@ -86,15 +78,10 @@ RETRY_PATTERNS = [
 ]
 
 
-# =============================================================================
-# 2. Data Models
-# =============================================================================
-
 @dataclass
 class DownloadResult:
     """Track download results and error types"""
 
-    # Counts
     success_count: int = 0
     rate_limited_count: int = 0
     members_only_count: int = 0
@@ -102,15 +89,12 @@ class DownloadResult:
     other_error_count: int = 0  # Unknown errors (critical)
     already_downloaded_count: int = 0
 
-    # Error details
     rate_limit_errors: list = field(default_factory=list)
     members_only_errors: list = field(default_factory=list)
     unavailable_errors: list = field(default_factory=list)
     other_errors: list = field(default_factory=list)
 
-    # Return code from yt-dlp
     return_code: int = 0
-    # Optional summary for channel-level result
     final_status: Optional[str] = None
     error_message: Optional[str] = None
 
@@ -148,14 +132,9 @@ class DownloadResult:
         self.members_only_errors.extend(other.members_only_errors)
         self.unavailable_errors.extend(other.unavailable_errors)
         self.other_errors.extend(other.other_errors)
-        # Keep worst return code
         if other.return_code != 0:
             self.return_code = other.return_code
 
-
-# =============================================================================
-# 3. Diagnosis Helpers
-# =============================================================================
 
 def _normalize_error_text(text: str) -> str:
     """
@@ -165,13 +144,6 @@ def _normalize_error_text(text: str) -> str:
     regex patterns use ASCII apostrophes, so normalize these first.
     """
     s = text or ""
-    # Common apostrophe / quote variants seen in yt-dlp output.
-    # - U+2019 RIGHT SINGLE QUOTATION MARK: you’re
-    # - U+2018 LEFT SINGLE QUOTATION MARK: ‘
-    # - U+02BC MODIFIER LETTER APOSTROPHE
-    # - U+FF07 FULLWIDTH APOSTROPHE
-    # - U+2032 PRIME (occasionally used as apostrophe)
-    # - U+00B4 ACUTE ACCENT (occasionally used as apostrophe)
     s = s.translate(
         {
             ord("\u2019"): ord("'"),
@@ -261,7 +233,6 @@ def classify_channel_error_line(error_line: str) -> str:
     """
     normalized = _normalize_error_text(error_line or "")
 
-    # Fast-path on explicit HTTP status if present.
     http_status = extract_http_status_from_text(normalized)
     if http_status == 429:
         return "rate_limit"

@@ -108,7 +108,6 @@ class YouTubeDownloader:
                 style = ""
                 end_style = ""
             
-            # Remove timestamp if present in msg as rich adds its own or just text
             message_callback(f"{style}{msg}{end_style}")
         else:
             if level == "debug":
@@ -168,12 +167,10 @@ class YouTubeDownloader:
                         line = (raw or "").strip()
                         if not line or line.startswith("#"):
                             continue
-                        # Prefer parsing watch URL lines
                         m = watch_id_re.search(line)
                         if m:
                             ids.append(m.group(1))
                             continue
-                        # Fallback: allow raw IDs per line
                         if yt_id_re.match(line):
                             ids.append(line)
             except Exception:
@@ -202,7 +199,6 @@ class YouTubeDownloader:
                     message_callback,
                 )
 
-        # Try cache first (if provided)
         if cache_file is not None:
             try:
                 if cache_file.exists() and cache_file.stat().st_size > 0:
@@ -229,7 +225,6 @@ class YouTubeDownloader:
                             message_callback,
                         )
             except Exception:
-                # Best-effort: fall through to network fetch
                 pass
 
         self._log_msg(f"Fetching channel video list for deduplication: {url}", "info", message_callback)
@@ -323,7 +318,6 @@ class YouTubeDownloader:
             return ("youtube_failed", error_msg)
         
         if result.critical_errors > 0 and total_processed == 0:
-            # Nothing downloaded and had unknown errors
             error_msg = f"Failed to download any videos. {result.critical_errors} unknown errors."
             if result.other_errors:
                 error_msg += f" Last error: {result.other_errors[-1][:200]}"
@@ -370,7 +364,6 @@ class YouTubeDownloader:
         """
         result = DownloadResult()
 
-        # New lightweight parser-based implementation (see core/parser.py).
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -476,10 +469,6 @@ class YouTubeDownloader:
         try:
             sub_langs = language if language else "ja,ja-orig,en"
 
-            # --- Cookies / account pool ---
-            # Priority:
-            # - explicit accounts list (shared account_pool controls cooldown)
-            # - legacy cookies_file_path
             accounts_list: list[YouTubeAccount] = list(accounts or [])
             pool = account_pool if (account_pool is not None and len(accounts_list) > 1) else None
 
@@ -488,7 +477,6 @@ class YouTubeDownloader:
             cookies_file: Optional[Path] = None
 
             if accounts_list:
-                # Distribute initial accounts across workers when possible
                 base_idx = 0
                 if worker_id is not None:
                     try:
@@ -499,7 +487,6 @@ class YouTubeDownloader:
                     base_idx = (wid - 1) if wid > 0 else wid
                 account_idx = base_idx % len(accounts_list)
 
-                # If selected account is cooling down, switch to an available one
                 if pool is not None:
                     now = time.time()
                     try:
@@ -525,12 +512,10 @@ class YouTubeDownloader:
                 self._log_msg(f"Cookies file not found: {cookies_file}", "warning", message_callback)
                 cookies_file = None
 
-            # Shared config context (invidious + extractor args)
             ctx = YtDlpContext(no_invidious=no_invidious)
             invidious_instance = ctx.invidious_instance
             instance_name = invidious_instance or "direct"
 
-            # --- Global Deduplication Logic ---
             try:
                 self._log_msg("Checking global archive for duplicates...", "info", message_callback)
 
@@ -572,20 +557,16 @@ class YouTubeDownloader:
                                 f.write(f"youtube {vid}\n")
             except Exception as e:
                 self._log_msg(f"Error in global deduplication: {e}", "error", message_callback)
-                # Continue with download even if deduplication fails
-            # ----------------------------------
 
             def build_ytdlp_cmd(
                 target_url: str,
                 batch_file: Optional[Path] = None,
             ) -> list[str]:
                 """Build yt-dlp command for a specific target URL, or a batch file."""
-                # Get rate limiting settings from config
                 sleep_requests = getattr(config, "YOUTUBE_SLEEP_REQUESTS", 2)
                 sleep_interval = getattr(config, "YOUTUBE_SLEEP_INTERVAL", 5)
                 max_sleep_interval = getattr(config, "YOUTUBE_MAX_SLEEP_INTERVAL", 8)
 
-                # Start building base command
                 cmd: list[str] = ["yt-dlp"]
 
                 # Add JS runtime (Deno) *before* compat options so we don't break
@@ -593,7 +574,6 @@ class YouTubeDownloader:
                 if self._deno_available:
                     cmd.extend(["--js-runtimes", "deno"])
 
-                # Keep compat options grouped; JS runtime may appear before this.
                 cmd.extend(["--compat-options", "no-youtube-unavailable-videos"])
 
                 if batch_file is not None:
@@ -609,36 +589,34 @@ class YouTubeDownloader:
                         str(sleep_interval),
                         "--max-sleep-interval",
                         str(max_sleep_interval),
-                        "-x",  # Extract audio
+                        "-x",
                         "--audio-format",
-                        "best",  # Best audio quality
+                        "best",
                         "--download-archive",
-                        str(archive_file),  # Track downloaded videos
+                        str(archive_file),
                         "-f",
-                        "bestaudio/best[height<=144]/best",  # Format selection
-                        "--write-subs",  # Download subtitles
-                        "--write-auto-subs",  # Download auto-generated subtitles
+                        "bestaudio/best[height<=144]/best",
+                        "--write-subs",
+                        "--write-auto-subs",
                         "--sub-langs",
-                        sub_langs,  # Subtitle languages
+                        sub_langs,
                         "-o",
                         str(
                             channel_dir / "%(title).50s [%(id)s].%(ext)s"
-                        ),  # Output template (50 char limit)
+                        ),
                         "--convert-subs",
-                        "srt",  # Convert subtitles to SRT
+                        "srt",
                         "--sub-format",
-                        "srt/best",  # Subtitle format
-                        "--newline",  # Force newline for progress
+                        "srt/best",
+                        "--newline",
                         "--match-filter",
                         "availability != 'premium' & availability != 'subscriber_only' & availability != 'needs_auth'",
-                        "--ignore-errors",  # Skip errors (like members-only if filter fails)
+                        "--ignore-errors",
                     ]
                 )
 
-                # Add extractor args (shared context)
                 ctx.extend_cli_cmd(cmd)
 
-                # Add cookies file if available (for browser-based auth)
                 if cookies_file:
                     cmd.extend(["--cookies", str(cookies_file)])
 
@@ -650,7 +628,6 @@ class YouTubeDownloader:
             self._log_msg(f"Archive file: {archive_file}", "info", message_callback)
             self._log_msg(f"Invidious instance: {instance_name} (no fallback/rotation)", "info", message_callback)
 
-            # --- Main download (with optional account switching) ---
             switches_used = 0
             max_switches_cfg = int(getattr(config, "YOUTUBE_ACCOUNT_SWITCH_MAX", 0) or 0)
             max_switches = (
@@ -717,11 +694,9 @@ class YouTubeDownloader:
                 last_attempt_result = attempt_result
                 combined_result.merge(attempt_result)
 
-                # Decide retry based on this attempt's rate limit state.
                 if not attempt_result.has_rate_limit:
                     break
 
-                # Rate limited: switch account (no invidious rotation)
                 if pool is None or account_idx < 0 or switches_used >= max_switches:
                     break
 
@@ -763,12 +738,9 @@ class YouTubeDownloader:
                 if not last_attempt_result.has_rate_limit:
                     combined_result.rate_limited_count = 0
                     combined_result.rate_limit_errors.clear()
-                # Final return code should reflect the last attempt, not interrupted retries.
                 combined_result.return_code = last_attempt_result.return_code
 
-            # Attempt to capture content from the specific 'Podcasts' tab
             base_url = url.rstrip("/")
-            # Simple heuristic to identify channel URLs
             is_channel = any(
                 x in base_url for x in ["/@", "/channel/", "/c/", "/user/"]
             )
@@ -785,7 +757,6 @@ class YouTubeDownloader:
                     message_callback,
                 )
 
-                # Use the same single invidious instance (no fallback/rotation)
                 cmd_podcast = build_ytdlp_cmd(podcast_tab_url)
 
                 self._log_msg(
@@ -793,7 +764,6 @@ class YouTubeDownloader:
                     "info",
                     message_callback,
                 )
-                # We run this but don't fail the whole process if it fails (tab might not exist)
                 podcast_result = self._run_ytdlp_with_progress(
                     cmd_podcast,
                     channel_key,
@@ -826,7 +796,6 @@ class YouTubeDownloader:
                         message_callback,
                     )
 
-            # Determine final status based on combined results
             final_status, error_msg = self._determine_final_status(combined_result, channel_key, message_callback)
 
             self._log_msg(
@@ -863,7 +832,6 @@ class YouTubeDownloader:
 
 
 if __name__ == "__main__":
-    # Test the downloader
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

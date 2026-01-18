@@ -45,7 +45,6 @@ class YouTubeBrowserAuth:
         self.profile_dir = profile_dir or config.YOUTUBE_BROWSER_PROFILE
         self.cookies_file = cookies_file or config.YOUTUBE_COOKIES_FILE
         
-        # Ensure directories exist
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.cookies_file.parent.mkdir(parents=True, exist_ok=True)
         
@@ -71,13 +70,10 @@ class YouTubeBrowserAuth:
         self.logger.info(f"Cookies file: {self.cookies_file}")
         
         with sync_playwright() as p:
-            # Launch persistent context - this saves ALL browser state
             context = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
                 headless=headless,
-                # Use a realistic viewport
                 viewport={"width": 1280, "height": 800},
-                # Avoid detection
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -87,7 +83,6 @@ class YouTubeBrowserAuth:
             try:
                 page = context.new_page()
                 
-                # Check if already logged in
                 page.goto(self.YOUTUBE_URL, wait_until="domcontentloaded")
                 time.sleep(2)
                 
@@ -97,7 +92,6 @@ class YouTubeBrowserAuth:
                     print("\n✓ Already logged in! Cookies exported.")
                     return True
                 
-                # Navigate to login page
                 self.logger.info("Not logged in. Navigating to login page...")
                 page.goto(self.YOUTUBE_LOGIN_URL, wait_until="domcontentloaded")
                 
@@ -110,7 +104,6 @@ class YouTubeBrowserAuth:
                 print(f"Waiting up to {timeout} seconds for login...")
                 print("=" * 60 + "\n")
                 
-                # Wait for login to complete
                 start_time = time.time()
                 check_interval = 3
                 redirected_after_google_login = False
@@ -119,9 +112,6 @@ class YouTubeBrowserAuth:
                     try:
                         time.sleep(check_interval)
                         
-                        # Check login state periodically.
-                        # User may finish Google login and still be on a Google page.
-                        # This might fail if browser is closed, handled in except block
                         if not page.is_closed():
                             current_url = page.url
 
@@ -134,7 +124,6 @@ class YouTubeBrowserAuth:
                                     print(f"  Cookies saved to: {self.cookies_file}")
                                     return True
                             else:
-                                # Detect Google auth cookies and hop back to YouTube once.
                                 google_logged_in = False
                                 try:
                                     for cookie in page.context.cookies():
@@ -166,17 +155,12 @@ class YouTubeBrowserAuth:
                                     print(f"  Cookies saved to: {self.cookies_file}")
                                     return True
                         else:
-                            # Page is closed but context might be open
                             raise Exception("Page closed")
                             
                     except Exception as e:
-                        # Browser might be closed by user
-                        # Try to refresh/verify login one last time using a NEW context
-                        # because the current one might be in a bad state
                         print(f"\nBrowser closed or disconnected ({e}). Verifying login state...")
                         break
                     
-                    # Show progress
                     elapsed = int(time.time() - start_time)
                     remaining = timeout - elapsed
                     print(f"\r  Waiting for login... ({remaining}s remaining)", end="", flush=True)
@@ -189,8 +173,6 @@ class YouTubeBrowserAuth:
                 except Exception:
                     pass
         
-        # Double check login state with a fresh headless instance
-        # This handles the case where user closed browser immediately after login
         print("\nVerifying login status with fresh instance...")
         return self.refresh_cookies()
     
@@ -201,13 +183,11 @@ class YouTubeBrowserAuth:
         Looks for the avatar button which only appears when logged in.
         """
         try:
-            # The avatar button appears when logged in
-            # Try multiple selectors that indicate logged-in state
             selectors = [
-                'button#avatar-btn',  # Avatar button
-                'yt-img-shadow#avatar-btn',  # Alternative avatar
-                'a[href*="/channel/"]',  # Channel link in menu
-                '#avatar-btn',  # Simple avatar button
+                'button#avatar-btn',
+                'yt-img-shadow#avatar-btn',
+                'a[href*="/channel/"]',
+                '#avatar-btn',
             ]
             
             for selector in selectors:
@@ -218,7 +198,6 @@ class YouTubeBrowserAuth:
                 except Exception:
                     continue
             
-            # Also check for sign-in button (if present, NOT logged in)
             signin_selectors = [
                 'a[href*="accounts.google.com/ServiceLogin"]',
                 'ytd-button-renderer a[href*="accounts.google.com"]',
@@ -229,14 +208,12 @@ class YouTubeBrowserAuth:
                 try:
                     element = page.query_selector(selector)
                     if element and element.is_visible():
-                        return False  # Sign-in button visible = not logged in
+                        return False
                 except Exception:
                     continue
             
-            # Check cookies for login indicators
             cookies = page.context.cookies()
             for cookie in cookies:
-                # These cookies indicate a logged-in Google account
                 if cookie["name"] in ["SID", "SSID", "HSID"] and "google.com" in cookie["domain"]:
                     return True
             
@@ -254,7 +231,6 @@ class YouTubeBrowserAuth:
         """
         cookies = context.cookies()
         
-        # Filter for YouTube/Google cookies
         relevant_domains = [".youtube.com", ".google.com", "youtube.com", "google.com"]
         filtered_cookies = [
             c for c in cookies
@@ -264,22 +240,18 @@ class YouTubeBrowserAuth:
         self.logger.info(f"Exporting {len(filtered_cookies)} cookies to {self.cookies_file}")
         
         with open(self.cookies_file, "w") as f:
-            # Netscape cookie file header
             f.write("# Netscape HTTP Cookie File\n")
             f.write("# https://curl.haxx.se/docs/http-cookies.html\n")
             f.write("# This file was generated by yt-dlp-wrapper browser_auth\n\n")
             
             for cookie in filtered_cookies:
-                # Netscape format: domain, flag, path, secure, expiry, name, value
                 domain = cookie["domain"]
-                # Flag: TRUE if domain starts with dot (applies to subdomains)
                 flag = "TRUE" if domain.startswith(".") else "FALSE"
                 path = cookie.get("path", "/")
                 secure = "TRUE" if cookie.get("secure", False) else "FALSE"
-                # Expiry: -1 for session cookies, otherwise Unix timestamp
                 expiry = int(cookie.get("expires", -1))
                 if expiry < 0:
-                    expiry = 0  # Session cookie
+                    expiry = 0
                 name = cookie["name"]
                 value = cookie["value"]
                 
@@ -306,7 +278,7 @@ class YouTubeBrowserAuth:
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
-                headless=True,  # Can be headless for refresh
+                headless=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -382,7 +354,6 @@ class YouTubeBrowserAuth:
         
         cleared_something = False
         
-        # Clear cookies file
         if self.cookies_file.exists():
             try:
                 self.cookies_file.unlink()
@@ -392,7 +363,6 @@ class YouTubeBrowserAuth:
                 self.logger.error(f"Failed to delete cookies file: {e}")
                 return False
         
-        # Clear browser profile directory
         if self.profile_dir.exists():
             try:
                 shutil.rmtree(self.profile_dir)
@@ -449,7 +419,6 @@ def youtube_refresh_cookies() -> bool:
 
 
 if __name__ == "__main__":
-    # Test the auth module
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -460,6 +429,5 @@ if __name__ == "__main__":
     print(f"Cookies file: {auth.cookies_file}")
     print(f"Cookies exist: {auth.cookies_exist()}")
     
-    # Run login
     success = auth.login()
     print(f"Login result: {success}")

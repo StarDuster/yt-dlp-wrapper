@@ -45,7 +45,6 @@ class YtDlpOutputParser:
         self.message_callback = message_callback
         self.log_callback = log_callback
 
-        # Regex patterns
         self._progress_pattern = re.compile(r"\[download\]\s+(\d+\.\d+)%.*?at\s+(\S+)\s+ETA\s+(\S+)")
         self._dest_pattern = re.compile(r"\[download\]\s+Destination:\s+(.+)")
         self._already_pattern = re.compile(r"\[download\]\s+(.+)\s+has already been downloaded")
@@ -67,7 +66,6 @@ class YtDlpOutputParser:
         self._current_item_index: Optional[int] = None
         self._current_item_total: Optional[int] = None
 
-        # Track if current video succeeded
         self._current_video_started = False
 
         self._seen_item_ids: set[str] = set()
@@ -108,7 +106,6 @@ class YtDlpOutputParser:
             )
             return
 
-        # Fallback print if no callback (limited rate)
         now = time.time()
         if (now - self._last_print_time > 5) or (percent > 99):
             item_str = f"[{self._current_item_index}/{self._current_item_total}] " if self._current_item_index else ""
@@ -183,7 +180,6 @@ class YtDlpOutputParser:
             self._advance_item(vid, force_emit=True)
             return None
 
-        # Try to extract current video ID
         vid_match = self._video_id_pattern.search(line)
         if vid_match:
             new_vid = vid_match.group(1)
@@ -195,7 +191,6 @@ class YtDlpOutputParser:
                 self._current_video_started = True
                 self._advance_item(new_vid)
 
-        # Check for item progress (video x of y)
         match_item = self._item_pattern.search(line)
         if match_item:
             self._current_item_index = int(match_item.group(1))
@@ -203,7 +198,6 @@ class YtDlpOutputParser:
             self._emit_progress(0, "...", "...")
             return None
 
-        # Check for progress
         match_progress = self._progress_pattern.search(line)
         if match_progress:
             percent = float(match_progress.group(1))
@@ -212,7 +206,6 @@ class YtDlpOutputParser:
             self._emit_progress(percent, speed, eta)
             return None
 
-        # Check for file destination (new download starting)
         match_dest = self._dest_pattern.search(line)
         if match_dest:
             self._current_file = match_dest.group(1).strip()
@@ -221,14 +214,12 @@ class YtDlpOutputParser:
             self._emit_progress(0, "...", "...")
             return None
 
-        # Check for already downloaded
         match_already = self._already_pattern.search(line)
         if match_already:
             result.already_downloaded_count += 1
             self._current_video_started = False  # Don't count again
             return None
 
-        # Check for errors - classify them
         is_error_line = "ERROR" in line
         lower_line = line.lower()
         is_bot_detection = (
@@ -262,7 +253,6 @@ class YtDlpOutputParser:
                 )
 
                 self._current_video_started = False
-                # Signal caller to abort the running process and return immediately.
                 result.return_code = -1
                 return result
 
@@ -297,4 +287,3 @@ class YtDlpOutputParser:
         if self._current_video_started:
             result.success_count += 1
             self._current_video_started = False
-
