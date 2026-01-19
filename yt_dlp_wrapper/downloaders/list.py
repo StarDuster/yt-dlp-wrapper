@@ -874,9 +874,9 @@ def download_from_input_list(
             item = q.get()
             try:
                 if item is None:
-                    return
+                    break
                 if stop_event.is_set():
-                    return
+                    break
 
                 # Reset per-item yt-dlp log buffer so DownloadError gets useful context.
                 logbuf.clear()
@@ -928,6 +928,8 @@ def download_from_input_list(
                         if next_idx != account_idx or account is None:
                             account_idx = next_idx
                             account = accounts[account_idx]
+                            with contextlib.suppress(Exception):
+                                ydl_base.close()
                             ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
                         try:
                             state["acct"] = str(account.name) if account is not None else ""
@@ -1117,6 +1119,9 @@ def download_from_input_list(
                                 nvenc_sem.release()
                             except Exception:
                                 pass
+                        if segment_mode:
+                            with contextlib.suppress(Exception):
+                                ydl_for_item.close()
 
                     if ok:
                         break
@@ -1165,6 +1170,8 @@ def download_from_input_list(
                                     account_idx = next_idx
                                     account = accounts[account_idx]
                                     state["acct"] = account.name
+                                    with contextlib.suppress(Exception):
+                                        ydl_base.close()
                                     ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
                                     switches_used += 1
                                     try:
@@ -1248,6 +1255,8 @@ def download_from_input_list(
                         account_idx = next_idx
                         account = accounts[account_idx]
                         state["acct"] = account.name
+                        with contextlib.suppress(Exception):
+                            ydl_base.close()
                         ydl_base = build_ydl(hook, account, logger_obj=ydl_logger)
                         switches_used += 1
                         continue
@@ -1331,6 +1340,8 @@ def download_from_input_list(
                     time.sleep(cooldown_sleep_after)
             finally:
                 q.task_done()
+        with contextlib.suppress(Exception):
+            ydl_base.close()
 
     prod = threading.Thread(target=producer, name="producer", daemon=True)
     prod.start()
