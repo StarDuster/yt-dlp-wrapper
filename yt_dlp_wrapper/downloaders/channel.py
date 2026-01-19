@@ -307,8 +307,8 @@ class YouTubeDownloader:
                 f"{result.rate_limited_count} videos blocked. "
                 f"Retry later."
             )
-            if result.rate_limit_errors:
-                error_msg += f" Last error: {result.rate_limit_errors[-1][:200]}"
+            if result.last_rate_limit_error:
+                error_msg += f" Last error: {result.last_rate_limit_error[:200]}"
             self._log_msg(f"[{channel_name}] {error_msg}", "warning", message_callback)
             return ("youtube_rate_limited", error_msg[:500])
         
@@ -319,8 +319,8 @@ class YouTubeDownloader:
         
         if result.critical_errors > 0 and total_processed == 0:
             error_msg = f"Failed to download any videos. {result.critical_errors} unknown errors."
-            if result.other_errors:
-                error_msg += f" Last error: {result.other_errors[-1][:200]}"
+            if result.last_other_error:
+                error_msg += f" Last error: {result.last_other_error[:200]}"
             self._log_msg(f"[{channel_name}] {error_msg}", "error", message_callback)
             return ("youtube_failed", error_msg[:500])
         
@@ -531,30 +531,102 @@ class YouTubeDownloader:
                 )
 
                 if channel_videos:
-                    global_ids = self._load_global_archive()
+                    csv_path_raw = getattr(config, "YOUTUBE_GLOBAL_ARCHIVE_CSV", None)
+                    if not csv_path_raw:
+                        channel_videos = []
+                        # Global archive dedup is optional.
+                        # When not configured, just skip this step.
+                        pass
+                    else:
+                        csv_path = Path(csv_path_raw).expanduser().resolve()
+                        if not csv_path.exists():
+                            self._log_msg(
+                                f"Global archive file not found: {csv_path}",
+                                "warning",
+                                message_callback,
+                            )
+                            channel_videos = []
+                        else:
+                            local_ids: set[str] = set()
+                            if archive_file.exists():
+                                with open(archive_file, "r", encoding="utf-8", errors="ignore") as f:
+                                    for line in f:
+                                        parts = line.strip().split()
+                                        if len(parts) >= 2 and parts[0] == "youtube":
+                                            local_ids.add(parts[1])
 
-                    local_ids = set()
-                    if archive_file.exists():
-                        with open(archive_file, "r", encoding="utf-8", errors="ignore") as f:
-                            for line in f:
-                                parts = line.strip().split()
-                                if len(parts) >= 2 and parts[0] == "youtube":
-                                    local_ids.add(parts[1])
+                            try:
+                                global_csv_size = int(csv_path.stat().st_size)
+                            except Exception:
+                                global_csv_size = 0
 
-                    new_skips = []
-                    for vid in channel_videos:
-                        if vid in global_ids and vid not in local_ids:
-                            new_skips.append(vid)
+                            # For small global archives, it's fine to build an in-memory set.
+                            # For large archives, stream the CSV and match against the channel set to avoid
+                            # loading millions of IDs into RAM.
+                            GLOBAL_ARCHIVE_IN_MEMORY_MAX_BYTES = 10 * 1024 * 1024
 
-                    if new_skips:
-                        self._log_msg(
-                            f"Skipping {len(new_skips)} videos found in global archive",
-                            "info",
-                            message_callback,
-                        )
-                        with open(archive_file, "a", encoding="utf-8") as f:
-                            for vid in new_skips:
-                                f.write(f"youtube {vid}\n")
+                            if 0 < global_csv_size <= GLOBAL_ARCHIVE_IN_MEMORY_MAX_BYTES:
+                                global_ids = self._load_global_archive()
+
+                                new_skips_count = 0
+                                out_f = None
+                                try:
+                                    for vid in channel_videos:
+                                        if vid in global_ids and vid not in local_ids:
+                                            if out_f is None:
+                                                out_f = open(archive_file, "a", encoding="utf-8")
+                                            out_f.write(f"youtube {vid}\n")
+                                            local_ids.add(vid)
+                                            new_skips_count += 1
+                                finally:
+                                    if out_f is not None:
+                                        out_f.close()
+                                    channel_videos = []
+
+                                if new_skips_count:
+                                    self._log_msg(
+                                        f"Skipping {new_skips_count} videos found in global archive",
+                                        "info",
+                                        message_callback,
+                                    )
+                            else:
+                                import csv
+
+                                channel_set = set(channel_videos)
+                                channel_videos = []
+
+                                new_skips_count = 0
+                                out_f = None
+                                try:
+                                    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                                        reader = csv.reader(f)
+                                        next(reader, None)  # Skip header
+                                        for row in reader:
+                                            if not channel_set:
+                                                break
+                                            if not row:
+                                                continue
+                                            vid = (row[0] or "").strip()
+                                            if not vid or vid not in channel_set:
+                                                continue
+                                            channel_set.discard(vid)
+                                            if vid in local_ids:
+                                                continue
+                                            if out_f is None:
+                                                out_f = open(archive_file, "a", encoding="utf-8")
+                                            out_f.write(f"youtube {vid}\n")
+                                            local_ids.add(vid)
+                                            new_skips_count += 1
+                                finally:
+                                    if out_f is not None:
+                                        out_f.close()
+
+                                if new_skips_count:
+                                    self._log_msg(
+                                        f"Skipping {new_skips_count} videos found in global archive",
+                                        "info",
+                                        message_callback,
+                                    )
             except Exception as e:
                 self._log_msg(f"Error in global deduplication: {e}", "error", message_callback)
 
@@ -737,7 +809,7 @@ class YouTubeDownloader:
             if last_attempt_result is not None:
                 if not last_attempt_result.has_rate_limit:
                     combined_result.rate_limited_count = 0
-                    combined_result.rate_limit_errors.clear()
+                    combined_result.last_rate_limit_error = None
                 combined_result.return_code = last_attempt_result.return_code
 
             base_url = url.rstrip("/")
@@ -778,9 +850,9 @@ class YouTubeDownloader:
                 # (e.g., turning an otherwise completed channel into youtube_partial).
                 podcast_result.return_code = 0
                 podcast_result.rate_limited_count = 0
-                podcast_result.rate_limit_errors.clear()
+                podcast_result.last_rate_limit_error = None
                 podcast_result.other_error_count = 0
-                podcast_result.other_errors.clear()
+                podcast_result.last_other_error = None
                 combined_result.merge(podcast_result)
 
                 if podcast_tab_total_errors > 0:

@@ -152,8 +152,8 @@ class TestDownloadResult(unittest.TestCase):
             unavailable_count=3,
             other_error_count=4,
             already_downloaded_count=10,
+            last_rate_limit_error="error1",
         )
-        result1.rate_limit_errors.append("error1")
 
         result2 = DownloadResult(
             success_count=3,
@@ -163,8 +163,8 @@ class TestDownloadResult(unittest.TestCase):
             other_error_count=1,
             already_downloaded_count=5,
             return_code=1,
+            last_rate_limit_error="error2",
         )
-        result2.rate_limit_errors.append("error2")
 
         result1.merge(result2)
 
@@ -175,7 +175,7 @@ class TestDownloadResult(unittest.TestCase):
         self.assertEqual(result1.other_error_count, 5)
         self.assertEqual(result1.already_downloaded_count, 15)
         self.assertEqual(result1.return_code, 1)
-        self.assertEqual(len(result1.rate_limit_errors), 2)
+        self.assertEqual(result1.last_rate_limit_error, "error2")
 
 
 if __name__ == "__main__":

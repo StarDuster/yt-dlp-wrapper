@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 RATE_LIMIT_PATTERNS = [
@@ -101,10 +101,11 @@ class DownloadResult:
     other_error_count: int = 0  # Unknown errors (critical)
     already_downloaded_count: int = 0
 
-    rate_limit_errors: list = field(default_factory=list)
-    members_only_errors: list = field(default_factory=list)
-    unavailable_errors: list = field(default_factory=list)
-    other_errors: list = field(default_factory=list)
+    # Only keep the last error line for each category (used for error_message output).
+    last_rate_limit_error: Optional[str] = None
+    last_members_only_error: Optional[str] = None
+    last_unavailable_error: Optional[str] = None
+    last_other_error: Optional[str] = None
 
     return_code: int = 0
     final_status: Optional[str] = None
@@ -140,10 +141,14 @@ class DownloadResult:
         self.unavailable_count += other.unavailable_count
         self.other_error_count += other.other_error_count
         self.already_downloaded_count += other.already_downloaded_count
-        self.rate_limit_errors.extend(other.rate_limit_errors)
-        self.members_only_errors.extend(other.members_only_errors)
-        self.unavailable_errors.extend(other.unavailable_errors)
-        self.other_errors.extend(other.other_errors)
+        if other.last_rate_limit_error:
+            self.last_rate_limit_error = other.last_rate_limit_error
+        if other.last_members_only_error:
+            self.last_members_only_error = other.last_members_only_error
+        if other.last_unavailable_error:
+            self.last_unavailable_error = other.last_unavailable_error
+        if other.last_other_error:
+            self.last_other_error = other.last_other_error
         if other.return_code != 0:
             self.return_code = other.return_code
 

@@ -243,7 +243,7 @@ class YtDlpOutputParser:
 
             if error_type == "rate_limit":
                 result.rate_limited_count += 1
-                result.rate_limit_errors.append(line)
+                result.last_rate_limit_error = line
 
                 self._emit_message(
                     f"[yellow][{self.channel_name}] ⚠️ Bot detected, aborting current attempt: {line}{video_url_part}[/yellow]"
@@ -258,21 +258,21 @@ class YtDlpOutputParser:
 
             if error_type == "members_only":
                 result.members_only_count += 1
-                result.members_only_errors.append(line)
+                result.last_members_only_error = line
                 if self.message_callback:
                     self.message_callback(f"[blue][{self.channel_name}] 🔒 Members only: {line}{video_url_part}[/blue]")
                 else:
                     self._emit_message(f"[{self.channel_name}] Members only: {line}{video_url_part}", "info")
             elif error_type == "unavailable":
                 result.unavailable_count += 1
-                result.unavailable_errors.append(line)
+                result.last_unavailable_error = line
                 if self.message_callback:
                     self.message_callback(f"[dim][{self.channel_name}] ⛔ Unavailable: {line}{video_url_part}[/dim]")
                 else:
                     self._emit_message(f"[{self.channel_name}] Unavailable: {line}{video_url_part}", "info")
             else:
                 result.other_error_count += 1
-                result.other_errors.append(line)
+                result.last_other_error = line
                 if self.message_callback:
                     self.message_callback(f"[red][{self.channel_name}] {line}{video_url_part}[/red]")
                 else:
